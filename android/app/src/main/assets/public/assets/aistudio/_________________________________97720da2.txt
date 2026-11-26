@@ -1,0 +1,126 @@
+Act as a Principal Frontend Architect, Computer Vision Web Engineer, and Award-Winning Product Designer. Build a complete, 100% production-ready, zero-backend web application: **"All-in-One AI Background Remover, Bulk Cutout & Creative Photo Studio"**.
+
+This project will be exported (`npm i` -> `npm run build`) and uploaded directly to standard Apache/LiteSpeed shared hosting (`public_html`, e.g., Hostinger) by non-technical users. Therefore, it MUST work 100% out-of-the-box both inside preview sandboxes (Google AI Studio) AND after Vite production builds on shared hosting with ZERO WASM/WebGPU bundling crashes, ZERO server resource usage, and ZERO paid API keys.
+
+---
+
+### 1. DESIGN SYSTEM & ANTI-GENERIC STUDIO AESTHETIC
+Strictly avoid typical AI-generated dark neon templates or purple/indigo gradients. Design an ultra-modern, tactile **"Pure Daylight & Frosted Alabaster Creative Studio"** interface inspired by Linear, Figma, and Apple Studio Display:
+- **Palette**: Alabaster/Warm Ivory canvas (`#F9FAFB` & `#F3F4F6`), crisp pure white floating toolbars (`#FFFFFF`), translucent liquid-frosted panels (`backdrop-filter: blur(20px) saturate(160%)`, `rgba(255, 255, 255, 0.85)`), subtle hairline borders (`#E5E7EB`), deep obsidian typography (`#111827`), and refined Emerald/Teal (`#0D9488`) + Slate (`#1E293B`) accents.
+- **Branding**: Create a clean **2D Flat Minimalist Vector Logo** (strictly flat geometric vector mark, no 3D shapes) controlled via a single `BRAND_CONFIG` object at the top of a dedicated `src/config.ts` file (default name: `"NoorCut Studio"` / `"نور كات ستوديو"`, easily editable by anyone).
+- **Interactive Before/After Curtain**: Smooth draggable split-screen comparison slider over a subtle checkerboard transparency grid.
+
+---
+
+### 2. FULL MULTILINGUAL & RTL/LTR ENGINE (4 LANGUAGES)
+Implement an instant, zero-reload localization engine persisted in `localStorage`:
+1. **Arabic (العربية - Default)**: Complete `dir="rtl"` layout mirroring, proper flex/grid/icon directional handling, using Google Fonts `'Cairo'` & `'Tajawal'` loaded automatically in `index.html`.
+2. **English (EN)**: `dir="ltr"` using `'Plus Jakarta Sans'` / `'Inter'`.
+3. **Portuguese (Português - PT-BR)**: Full natural Brazilian Portuguese translation.
+4. **French (Français - FR)**: Full natural French translation.
+All UI buttons, engine descriptions, download progress bars, error messages, canvas tools, and landing/FAQ sections must translate dynamically.
+
+---
+
+### 3. BULLETPROOF PRODUCTION BUILD & SHARED HOSTING ARCHITECTURE (CRITICAL!)
+When standard Vite/Rollup bundles `onnxruntime-web`, `@imgly/background-removal`, or `@huggingface/transformers`, minification mangles internal WASM/WebGPU exports (causing `TypeError: (...).webgpuInit is not a function` and `no available backend found` in production). You MUST prevent this completely by implementing ALL of the following rules:
+
+1. **Bypass Vite Bundling via Native Runtime ESM CDN Loader**:
+   - NEVER let Vite/Rollup bundle or minify `@imgly/background-removal`, `@huggingface/transformers`, `onnxruntime-web`, or `@gradio/client`. Do NOT list heavy AI packages in `package.json` if not needed, or strictly externalize/exclude them.
+   - Load them dynamically at runtime in the browser using an un-bundled native dynamic import helper:
+     `const importModule = new Function('url', 'return import(url)');`
+2. **Pre-Generate `.htaccess` & `coi-serviceworker` Automatically into `public/`**:
+   - Create `public/.htaccess` inside the project so that when Vite runs `npm run build`, `.htaccess` is automatically copied inside the `dist/` folder! Configure `public/.htaccess` with:
+     ```apache
+     <IfModule mod_headers.c>
+       Header set Cross-Origin-Opener-Policy "same-origin"
+       Header set Cross-Origin-Embedder-Policy "credentialless"
+       Header set Access-Control-Allow-Origin "*"
+     </IfModule>
+     <IfModule mod_mime.c>
+       AddType application/wasm .wasm
+       AddType text/javascript .mjs
+     </IfModule>
+     <IfModule mod_rewrite.c>
+       RewriteEngine On
+       RewriteBase /
+       RewriteRule ^index\.html$ - [L]
+       RewriteCond %{REQUEST_FILENAME} !-f
+       RewriteCond %{REQUEST_FILENAME} !-d
+       RewriteRule . /index.html [L]
+     </IfModule>
+     ```
+     *(Using `credentialless` unlocks multi-threaded WASM `SharedArrayBuffer` speed on Hostinger while keeping Google AdSense & external CDN assets 100% unblocked!)*
+3. **Configure `vite.config.ts` for Universal Deployment**:
+   - Set `base: './'` so `dist` works in root `public_html` OR any subdirectory without broken asset paths.
+   - Set `worker: { format: 'es' }` and `optimizeDeps: { exclude: ['@imgly/background-removal', '@huggingface/transformers', 'onnxruntime-web', '@gradio/client'] }`.
+
+---
+
+### 4. TRIPLE-ENGINE AI BACKGROUND REMOVAL SYSTEM (100% WORKING)
+Build `src/services/aiBgEngine.ts` with 3 real AI engines selectable from the top bar, plus automatic seamless fallback so it NEVER throws fatal errors:
+
+1. **Engine 1: Smart Local Browser AI — `RMBG-1.4 / ModNet` via Transformers.js v3 (Default & Recommended)**:
+   - Dynamically load `https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3` via `importModule`.
+   - Configure BEFORE model load:
+     ```ts
+     env.allowLocalModels = false;
+     env.useBrowserCache = true;
+     env.backends.onnx.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.3.3/dist/';
+     env.backends.onnx.wasm.numThreads = window.crossOriginIsolated ? navigator.hardwareConcurrency || 4 : 1;
+     ```
+   - Use `AutoModel.from_pretrained('briaai/RMBG-1.4', { device: 'wasm', dtype: 'fp16' })` + `AutoProcessor` (or fallback cleanly to `'q8'` / `'Xenova/modnet'` if memory is constrained). Explicitly default to `'wasm'` unless WebGPU adapter is verified working in a try/catch block that falls back to `'wasm'` immediately!
+   - Show a sleek real-time MB download progress bar on first load ("جاري تهيئة محرك الذكاء الاصطناعي لأول مرة فقط - يعمل مجاناً للأبد...").
+
+2. **Engine 2: Local Studio Matting — `IMG.LY ISNet` (100% On-Device)**:
+   - Dynamically load `https://esm.sh/@imgly/background-removal@1.5.5` via `importModule`.
+   - Pass explicit CDN config:
+     ```ts
+     {
+       publicPath: 'https://staticimgly.com/@imgly/background-removal-data/1.5.5/dist/',
+       device: 'cpu', // Safe WASM backend across all browsers & shared hosts
+       model: 'isnet_fp16',
+       output: { format: 'image/png', quality: 1 }
+     }
+     ```
+   - If Engine 2 ever fails on a specific browser, automatically catch and process via Engine 1 transparently.
+
+3. **Engine 3: `not-lain` Cloud Ultra AI (Free Hugging Face ZeroGPU Space)**:
+   - Dynamically load `https://cdn.jsdelivr.net/npm/@gradio/client/+esm` via `importModule`.
+   - Connect directly to `Client.connect("not-lain/background-removal")` and invoke `/png` (or `/image`) with the uploaded image Blob.
+   - **Auto-Protection**: Wrap in a 25-second timeout & quota error handler; if Hugging Face ZeroGPU is busy/rate-limited, notify the user kindly and auto-complete the cutout using Engine 1 (Local AI) so the user NEVER gets stuck!
+
+*Note: Never substitute fake color-threshold magic wand hacks as the main AI engine—always execute genuine neural network alpha matting.*
+
+---
+
+### 5. SINGLE STUDIO & BULK BATCH PROCESSING (UP TO 50+ IMAGES)
+- **Single Studio Mode**: High-resolution interactive canvas editor (supports 4K photos).
+- **Bulk / Batch Mode**:
+  - Drag & drop dozens of images (`JPG`, `PNG`, `WebP`, `AVIF`) at once.
+  - Sequential queue processor (protects browser RAM) showing per-image progress badges, live thumbnails with removed backgrounds, global background color/size/watermark application across all images, individual download buttons, and a **"Download All as ZIP"** button using `jszip`!
+
+---
+
+### 6. CREATIVE PHOTO EDITING & DESIGN SKILLS SUITE (MULTI-LAYER CANVAS)
+Maintain a true non-destructive layered HTML5 Canvas compositor (`Background Layer` -> `Text Behind Subject Layer` -> `Shadow & Sticker Stroke Layer` -> `Subject Cutout Layer` -> `Foreground Text & Watermark Layer`):
+
+1. **Background Studio & DSLR Bokeh**:
+   - Transparent grid, Solid Colors + Marketplace Presets (Amazon Pure White `#FFFFFF`, Studio Gray), Mesh Gradients, Custom Image Upload, or **Portrait DSLR Blur** (blurs the original photo's background behind the sharp cutout subject with an adjustable Bokeh slider!).
+2. **"Text Behind Subject" & Full Arabic/Latin Typography**:
+   - Add multiple text layers with a 1-click **"Place Behind Subject" (النص خلف العنصر)** vs **"In Front"** toggle for viral YouTube Thumbnails & Posters.
+   - Full Arabic & English Google Fonts (`Cairo`, `Tajawal`, `Readex Pro`, `Anton`, `Inter`, `Playfair Display`), size, color, stroke outline, drop shadow, rotation, and direct drag-to-move positioning on canvas.
+3. **YouTube Sticker Border & Realistic Shadows**:
+   - **Cutout Outline / Sticker Stroke**: Smooth alpha-dilated border around the subject (adjustable width & color, e.g., classic white sticker border).
+   - **Studio Drop Shadow**: Adjustable X/Y angle, softness blur, opacity, and color.
+4. **Interactive Magic Brush (Erase & Restore Mask)**:
+   - Manual touch-up brush on the alpha mask with **Erase** and **Restore Original** modes, brush size slider, Zoom/Pan controls, and Undo/Redo history (`Ctrl+Z` / `Ctrl+Y`).
+5. **Color Adjustments & Smart E-Commerce Resizer**:
+   - Independent Brightness, Contrast, Saturation, and Warmth sliders for Subject vs. Background.
+   - **1-Click Aspect Ratio Presets**: Original, Amazon/Store Square (`1:1` 1080x1080), YouTube Thumbnail (`16:9` 1920x1080), Reels/TikTok (`9:16` 1080x1920), ID/Passport Photo (`3.5x4.5`).
+6. **Smart Export & Compression**:
+   - Download in `PNG`, `WebP`, or `JPG` with quality slider and live file-size calculation.
+
+---
+
+### 7. MONETIZATION SLOTS, SEO LANDING & CLEAN PACKAGE.JSON

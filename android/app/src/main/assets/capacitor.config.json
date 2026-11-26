@@ -1,0 +1,13 @@
+{
+	"appId": "studio.noorcut.app",
+	"appName": "NoorCut Studio",
+	"webDir": "dist",
+	"server": {
+		"androidScheme": "https"
+	},
+	"android": {
+		"allowMixedContent": false,
+		"captureInput": true,
+		"webContentsDebuggingEnabled": false
+	}
+}

@@ -1,0 +1,116 @@
+@import "tailwindcss";
+
+:root {
+  --studio-bg: #F9FAFB;
+  --studio-surface: #F3F4F6;
+  --studio-card: #FFFFFF;
+  --studio-glass: rgba(255, 255, 255, 0.85);
+  --studio-border: #E5E7EB;
+  --studio-ink: #111827;
+  --studio-muted: #4B5563;
+  --studio-accent: #0D9488;
+  --studio-slate: #1E293B;
+}
+
+html {
+  scroll-behavior: smooth;
+  font-family: 'Cairo', 'Tajawal', 'Plus Jakarta Sans', system-ui, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  overscroll-behavior-y: contain;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+html[dir="ltr"] {
+  font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+}
+
+html[dir="rtl"] {
+  font-family: 'Cairo', 'Tajawal', system-ui, sans-serif;
+}
+
+.frosted-panel {
+  background: rgba(255, 255, 255, 0.86);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+}
+
+.checkerboard-bg {
+  background-color: #ffffff;
+  background-image:
+    linear-gradient(45deg, #edeff2 25%, transparent 25%),
+    linear-gradient(-45deg, #edeff2 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #edeff2 75%),
+    linear-gradient(-45deg, transparent 75%, #edeff2 75%);
+  background-size: 20px 20px;
+  background-position: 0 0, 0 10px, 10px -10px, -10px 0;
+}
+
+.checkerboard-sm {
+  background-color: #ffffff;
+  background-image:
+    linear-gradient(45deg, #e5e7eb 25%, transparent 25%),
+    linear-gradient(-45deg, #e5e7eb 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #e5e7eb 75%),
+    linear-gradient(-45deg, transparent 75%, #e5e7eb 75%);
+  background-size: 12px 12px;
+  background-position: 0 0, 0 6px, 6px -6px, -6px 0;
+}
+
+input[type="range"].studio-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 999px;
+  background: #E5E7EB;
+  outline: none;
+}
+
+input[type="range"].studio-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #0D9488;
+  border: 2px solid #FFFFFF;
+  box-shadow: 0 1px 3px rgba(17, 24, 39, 0.25);
+  cursor: pointer;
+  transition: transform 150ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (pointer: coarse) {
+  input[type="range"].studio-slider::-webkit-slider-thumb {
+    width: 22px;
+    height: 22px;
+  }
+}
+
+input[type="range"].studio-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.12);
+}
+
+input[type="range"].studio-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #0D9488;
+  border: 2px solid #FFFFFF;
+  box-shadow: 0 1px 3px rgba(17, 24, 39, 0.25);
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}

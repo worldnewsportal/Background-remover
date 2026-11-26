@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">NoorCut Studio</string>
+    <string name="title_activity_main">NoorCut Studio</string>
+    <string name="package_name">studio.noorcut.app</string>
+    <string name="custom_url_scheme">studio.noorcut.app</string>
+</resources>
