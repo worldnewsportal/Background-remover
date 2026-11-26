@@ -13,18 +13,25 @@ import {
 import { SAMPLE_PHOTOS } from '../config';
 import type { TranslationDictionary } from '../i18n/translations';
 import { removeBackgroundWithEngine } from '../services/aiBgEngine';
-import type { AspectPresetId, BatchItem, EngineId } from '../types/studio';
+import type { AspectPresetId, BatchItem, EngineId, ExportFormat } from '../types/studio';
 import { computeContainFit, computeTargetDimensions } from '../utils/canvasMath';
 import { saveBlobToDevice } from '../utils/mobileDownload';
 
 interface BulkBatchStudioProps {
   t: TranslationDictionary;
   selectedEngine: EngineId;
+  onExportComplete?: (entry: {
+    filename: string;
+    blob: Blob;
+    format: ExportFormat;
+    width: number;
+    height: number;
+  }) => void;
 }
 
 type GlobalBgMode = 'transparent' | '#FFFFFF' | '#F3F4F6' | '#111827';
 
-export function BulkBatchStudio({ t, selectedEngine }: BulkBatchStudioProps) {
+export function BulkBatchStudio({ t, selectedEngine, onExportComplete }: BulkBatchStudioProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [items, setItems] = useState<BatchItem[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -219,7 +226,20 @@ export function BulkBatchStudio({ t, selectedEngine }: BulkBatchStudioProps) {
     const res = await fetch(item.resultCutoutUrl);
     const blob = await res.blob();
     const baseName = item.name.replace(/\.[^.]+$/, '');
-    await saveBlobToDevice(blob, `${baseName}-cutout.png`);
+    const filename = `${baseName}-cutout.png`;
+    await saveBlobToDevice(blob, filename);
+    const dims = computeTargetDimensions(
+      item.originalWidth || 1200,
+      item.originalHeight || 900,
+      globalRatio
+    );
+    onExportComplete?.({
+      filename,
+      blob,
+      format: 'png',
+      width: dims.width,
+      height: dims.height,
+    });
   };
 
   const downloadAllZip = async () => {
@@ -233,7 +253,20 @@ export function BulkBatchStudio({ t, selectedEngine }: BulkBatchStudioProps) {
         const res = await fetch(item.resultCutoutUrl!);
         const blob = await res.blob();
         const baseName = item.name.replace(/\.[^.]+$/, '');
-        zip.file(`${String(i + 1).padStart(2, '0')}-${baseName}-cutout.png`, blob);
+        const entryName = `${baseName}-cutout.png`;
+        zip.file(`${String(i + 1).padStart(2, '0')}-${entryName}`, blob);
+        const dims = computeTargetDimensions(
+          item.originalWidth || 1200,
+          item.originalHeight || 900,
+          globalRatio
+        );
+        onExportComplete?.({
+          filename: entryName,
+          blob,
+          format: 'png',
+          width: dims.width,
+          height: dims.height,
+        });
       }
       const zipBlob = await zip.generateAsync({ type: 'blob' });
       await saveBlobToDevice(zipBlob, `noorcut-batch-${completed.length}.zip`);

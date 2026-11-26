@@ -22,6 +22,7 @@ import type {
   ColorAdjustments,
   EngineId,
   EngineProgress,
+  ExportFormat,
   ExportSettings,
   StickerShadowSettings,
   TextLayer,
@@ -50,6 +51,13 @@ interface SingleStudioEditorProps {
   isRtl: boolean;
   selectedEngine: EngineId;
   externalFileTrigger: number;
+  onExportComplete?: (entry: {
+    filename: string;
+    blob: Blob;
+    format: ExportFormat;
+    width: number;
+    height: number;
+  }) => void;
 }
 
 export function SingleStudioEditor({
@@ -57,6 +65,7 @@ export function SingleStudioEditor({
   isRtl,
   selectedEngine,
   externalFileTrigger,
+  onExportComplete,
 }: SingleStudioEditorProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -657,7 +666,15 @@ export function SingleStudioEditor({
       exportSettings.quality
     );
     const ext = exportSettings.format === 'jpeg' ? 'jpg' : exportSettings.format;
-    await saveBlobToDevice(blob, `${originalName}-noorcut.${ext}`);
+    const filename = `${originalName}-noorcut.${ext}`;
+    await saveBlobToDevice(blob, filename);
+    onExportComplete?.({
+      filename,
+      blob,
+      format: exportSettings.format,
+      width: targetDimensions.width,
+      height: targetDimensions.height,
+    });
   };
 
   return (

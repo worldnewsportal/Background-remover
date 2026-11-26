@@ -95,3 +95,15 @@ export interface CutoutResult {
   fallbackReason?: string;
   durationMs: number;
 }
+
+export interface RecentExportItem {
+  id: string;
+  filename: string;
+  previewUrl: string;
+  blob: Blob;
+  format: ExportFormat;
+  sizeBytes: number;
+  width: number;
+  height: number;
+  createdAt: number;
+}

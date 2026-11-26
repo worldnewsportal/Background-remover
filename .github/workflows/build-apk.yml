@@ -37,7 +37,7 @@ jobs:
 
       - name: Run unit tests and TypeScript check
         run: |
-          npx --yes tsx --test src/utils/canvasMath.test.ts src/i18n/translations.test.ts
+          npx --yes tsx --test src/utils/canvasMath.test.ts src/utils/recentExports.test.ts src/i18n/translations.test.ts
           npm run lint
 
       - name: Build production web bundle

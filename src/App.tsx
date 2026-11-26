@@ -1,19 +1,71 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Cloud, Cpu, Layers, Sparkles } from 'lucide-react';
 import { BulkBatchStudio } from './components/BulkBatchStudio';
 import { Header } from './components/Header';
 import { MonetizationSlot } from './components/MonetizationSlot';
 import { OfflineIndicator } from './components/OfflineIndicator';
+import { RecentExportsSection } from './components/RecentExportsSection';
 import { SeoLandingSection } from './components/SeoLandingSection';
 import { SingleStudioEditor } from './components/SingleStudioEditor';
 import { useTranslation } from './i18n/useTranslation';
-import type { EngineId, StudioMode } from './types/studio';
+import type { EngineId, ExportFormat, RecentExportItem, StudioMode } from './types/studio';
+import { saveBlobToDevice } from './utils/mobileDownload';
+import { pushRecentExport } from './utils/recentExports';
 
 export default function App() {
   const { lang, setLanguage, t, isRtl } = useTranslation();
   const [studioMode, setStudioMode] = useState<StudioMode>('single');
   const [selectedEngine, setSelectedEngine] = useState<EngineId>('rmbg');
   const [uploadTrigger, setUploadTrigger] = useState(0);
+  const [recentExports, setRecentExports] = useState<RecentExportItem[]>([]);
+  const recentExportsRef = useRef<RecentExportItem[]>([]);
+  recentExportsRef.current = recentExports;
+
+  useEffect(() => {
+    return () => {
+      recentExportsRef.current.forEach((item) => URL.revokeObjectURL(item.previewUrl));
+    };
+  }, []);
+
+  const handleRecordExport = useCallback(
+    (entry: {
+      filename: string;
+      blob: Blob;
+      format: ExportFormat;
+      width: number;
+      height: number;
+    }) => {
+      const previewUrl = URL.createObjectURL(entry.blob);
+      const nextItem: RecentExportItem = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        filename: entry.filename,
+        previewUrl,
+        blob: entry.blob,
+        format: entry.format,
+        sizeBytes: entry.blob.size,
+        width: entry.width,
+        height: entry.height,
+        createdAt: Date.now(),
+      };
+      setRecentExports((prev) => {
+        const res = pushRecentExport(prev, nextItem);
+        res.evicted.forEach((evicted) => URL.revokeObjectURL(evicted.previewUrl));
+        return res.items;
+      });
+    },
+    []
+  );
+
+  const handleRedownloadExport = useCallback(async (item: RecentExportItem) => {
+    await saveBlobToDevice(item.blob, item.filename);
+  }, []);
+
+  const handleClearRecentExports = useCallback(() => {
+    setRecentExports((prev) => {
+      prev.forEach((item) => URL.revokeObjectURL(item.previewUrl));
+      return [];
+    });
+  }, []);
 
   const engines: Array<{
     id: EngineId;
@@ -135,10 +187,22 @@ export default function App() {
             isRtl={isRtl}
             selectedEngine={selectedEngine}
             externalFileTrigger={uploadTrigger}
+            onExportComplete={handleRecordExport}
           />
         ) : (
-          <BulkBatchStudio t={t} selectedEngine={selectedEngine} />
+          <BulkBatchStudio
+            t={t}
+            selectedEngine={selectedEngine}
+            onExportComplete={handleRecordExport}
+          />
         )}
+
+        <RecentExportsSection
+          t={t}
+          items={recentExports}
+          onRedownload={handleRedownloadExport}
+          onClearAll={handleClearRecentExports}
+        />
       </main>
 
       <MonetizationSlot slotKey="landingMidBanner" label={t.adSlotLabel} />

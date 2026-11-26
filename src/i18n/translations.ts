@@ -184,6 +184,12 @@ export interface TranslationDictionary {
   iosGuideStep2: string;
   closeLabel: string;
   offlineNotice: string;
+
+  // Recent Exports
+  recentExportsTitle: string;
+  recentExportsEmpty: string;
+  recentExportsRedownload: string;
+  recentExportsClear: string;
 }
 
 export const TRANSLATIONS: Record<Language, TranslationDictionary> = {
@@ -367,6 +373,10 @@ export const TRANSLATIONS: Record<Language, TranslationDictionary> = {
     iosGuideStep2: '٢. مرر للأسفل واختر "إضافة إلى الشاشة الرئيسية" (Add to Home Screen).',
     closeLabel: 'إغلاق',
     offlineNotice: 'وضع عدم الاتصال — يعمل التطبيق باستخدام الملفات المحفوظة.',
+    recentExportsTitle: 'التصديرات الأخيرة',
+    recentExportsEmpty: 'ستظهر هنا آخر 5 صور تم تصديرها في هذه الجلسة لإعادة تحميلها بسرعة.',
+    recentExportsRedownload: 'إعادة التحميل',
+    recentExportsClear: 'مسح السجل',
   },
 
   en: {
@@ -549,6 +559,10 @@ export const TRANSLATIONS: Record<Language, TranslationDictionary> = {
     iosGuideStep2: '2. Scroll down and tap Add to Home Screen.',
     closeLabel: 'Close',
     offlineNotice: 'Offline Mode — Cached app files are active.',
+    recentExportsTitle: 'Recent Exports',
+    recentExportsEmpty: 'Your last 5 exported images in this session will appear here for quick re-download.',
+    recentExportsRedownload: 'Re-download',
+    recentExportsClear: 'Clear',
   },
 
   pt: {
@@ -731,6 +745,10 @@ export const TRANSLATIONS: Record<Language, TranslationDictionary> = {
     iosGuideStep2: '2. Role para baixo e toque em Adicionar à Tela de Início.',
     closeLabel: 'Fechar',
     offlineNotice: 'Modo Offline — Arquivos em cache ativos.',
+    recentExportsTitle: 'Exportações Recentes',
+    recentExportsEmpty: 'As últimas 5 imagens exportadas nesta sessão aparecerão aqui para baixar novamente.',
+    recentExportsRedownload: 'Baixar novamente',
+    recentExportsClear: 'Limpar',
   },
 
   fr: {
@@ -913,5 +931,9 @@ export const TRANSLATIONS: Record<Language, TranslationDictionary> = {
     iosGuideStep2: '2. Faites défiler et choisissez Sur l’écran d’accueil.',
     closeLabel: 'Fermer',
     offlineNotice: 'Mode hors ligne — Fichiers en cache actifs.',
+    recentExportsTitle: 'Exports récents',
+    recentExportsEmpty: 'Vos 5 dernières images exportées dans cette session s’afficheront ici pour être retéléchargées.',
+    recentExportsRedownload: 'Retélécharger',
+    recentExportsClear: 'Effacer',
   },
 };
