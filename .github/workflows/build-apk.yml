@@ -26,21 +26,25 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci --legacy-peer-deps
+          else
+            npm install --legacy-peer-deps --no-audit --no-fund
+          fi
 
       - name: Run unit tests and TypeScript check
         run: |
-          npx tsx --test src/utils/canvasMath.test.ts src/i18n/translations.test.ts
+          npx --yes tsx --test src/utils/canvasMath.test.ts src/i18n/translations.test.ts
           npm run lint
 
       - name: Build production web bundle
         run: npm run build
 
       - name: Sync Capacitor Android project
-        run: npx cap sync android
+        run: npx --yes cap sync android
 
       - name: Setup Java 21
         uses: actions/setup-java@v4
