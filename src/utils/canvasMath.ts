@@ -171,3 +171,25 @@ export function pushMaskHistory<T>(
   }
   return { history: next, index: next.length - 1 };
 }
+
+export function sanitizeExportBaseName(raw: string, fallback = 'studio-design-noorcut'): string {
+  const withoutKnownExt = raw
+    .trim()
+    .replace(/\.(png|jpe?g|webp|avif)$/i, '');
+  const cleaned = withoutKnownExt
+    .replace(/[\\/:*?"<>|\u0000-\u001F]+/g, '-')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^[.-]+|[.-]+$/g, '');
+  return cleaned || fallback;
+}
+
+export function buildExportFilename(
+  rawBaseName: string,
+  fallbackBaseName: string,
+  format: ExportFormat
+): string {
+  const safeBase = sanitizeExportBaseName(rawBaseName, fallbackBaseName);
+  const ext = format === 'jpeg' ? 'jpg' : format;
+  return `${safeBase}.${ext}`;
+}

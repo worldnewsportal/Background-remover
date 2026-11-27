@@ -36,6 +36,7 @@ import {
   type StudioCompositeState,
 } from '../utils/canvasCompositor';
 import {
+  buildExportFilename,
   computeTargetDimensions,
   DEFAULT_ADJUSTMENTS,
   estimateExportSizeBytes,
@@ -43,6 +44,8 @@ import {
   pushMaskHistory,
 } from '../utils/canvasMath';
 import { saveBlobToDevice } from '../utils/mobileDownload';
+import { isSupportedImageFile, validateImageDimensions } from '../utils/imageLimits';
+import { isEditableElement } from '../utils/keyboardShortcuts';
 import { BeforeAfterCurtain } from './BeforeAfterCurtain';
 import { ToolSidebar } from './ToolSidebar';
 
@@ -51,6 +54,8 @@ interface SingleStudioEditorProps {
   isRtl: boolean;
   selectedEngine: EngineId;
   externalFileTrigger: number;
+  externalExportTrigger?: number;
+  onExportReadyChange?: (ready: boolean) => void;
   onExportComplete?: (entry: {
     filename: string;
     blob: Blob;
@@ -65,6 +70,8 @@ export function SingleStudioEditor({
   isRtl,
   selectedEngine,
   externalFileTrigger,
+  externalExportTrigger = 0,
+  onExportReadyChange,
   onExportComplete,
 }: SingleStudioEditorProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -81,10 +88,15 @@ export function SingleStudioEditor({
   const maskHistoryRef = useRef<ImageData[]>([]);
   const maskHistoryIndexRef = useRef<number>(-1);
   const [historyMeta, setHistoryMeta] = useState({ index: -1, length: 0 });
+  const cutoutRequestIdRef = useRef(0);
+  const isMountedRef = useRef(true);
+  const originalBlobUrlRef = useRef<string | null>(null);
+  const customBgBlobUrlRef = useRef<string | null>(null);
 
   // Active Image State
   const [originalUrl, setOriginalUrl] = useState<string | null>(null);
   const [originalName, setOriginalName] = useState<string>('studio-design');
+  const [exportFilename, setExportFilename] = useState<string>('studio-design-noorcut');
   const [origDims, setOrigDims] = useState<{ width: number; height: number }>({
     width: 1200,
     height: 900,
@@ -99,6 +111,24 @@ export function SingleStudioEditor({
     message: string;
   } | null>(null);
   const [lastDurationMs, setLastDurationMs] = useState<number | null>(null);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      cutoutRequestIdRef.current += 1;
+      if (originalBlobUrlRef.current) URL.revokeObjectURL(originalBlobUrlRef.current);
+      if (customBgBlobUrlRef.current) URL.revokeObjectURL(customBgBlobUrlRef.current);
+      if (maskCanvasRef.current) {
+        maskCanvasRef.current.width = 0;
+        maskCanvasRef.current.height = 0;
+      }
+      if (subjectCanvasRef.current) {
+        subjectCanvasRef.current.width = 0;
+        subjectCanvasRef.current.height = 0;
+      }
+    };
+  }, []);
 
   // Viewport & Comparison State
   const [viewMode, setViewMode] = useState<'studio' | 'split'>('studio');
@@ -250,6 +280,17 @@ export function SingleStudioEditor({
     }
   }, [hasCutout, redrawPreview]);
 
+  useEffect(() => {
+    if (typeof document === 'undefined' || !document.fonts?.ready) return;
+    let active = true;
+    void document.fonts.ready.then(() => {
+      if (active && hasCutout) redrawPreview();
+    });
+    return () => {
+      active = false;
+    };
+  }, [hasCutout, redrawPreview]);
+
   const syncHistoryMeta = () => {
     setHistoryMeta({
       index: maskHistoryIndexRef.current,
@@ -296,6 +337,7 @@ export function SingleStudioEditor({
 
   const runCutoutForImage = useCallback(
     async (img: HTMLImageElement, engine: EngineId) => {
+      const requestId = ++cutoutRequestIdRef.current;
       setIsProcessing(true);
       setStatusNotice(null);
       setProgress({
@@ -306,6 +348,7 @@ export function SingleStudioEditor({
 
       try {
         const result = await removeBackgroundWithEngine(img, engine, (p) => {
+          if (!isMountedRef.current || requestId !== cutoutRequestIdRef.current) return;
           setProgress({
             ...p,
             message:
@@ -314,6 +357,8 @@ export function SingleStudioEditor({
                 : t.aiProcessing,
           });
         });
+
+        if (!isMountedRef.current || requestId !== cutoutRequestIdRef.current) return;
 
         initialAiMaskRef.current = new ImageData(
           new Uint8ClampedArray(result.maskData.data),
@@ -327,19 +372,24 @@ export function SingleStudioEditor({
           setStatusNotice({
             type: 'warning',
             message:
-              result.fallbackReason === 'cloud_busy'
+              result.fallbackReason === 'cloud_offline'
+                ? t.aiOfflineFallbackNotice
+                : result.fallbackReason === 'cloud_busy'
                 ? t.aiCloudTimeoutNotice
                 : t.aiFallbackNotice,
           });
         }
       } catch (err) {
+        if (!isMountedRef.current || requestId !== cutoutRequestIdRef.current) return;
         setStatusNotice({
           type: 'error',
-          message: err instanceof Error ? err.message : 'Background removal failed',
+          message: err instanceof Error ? err.message : t.errDecodeFailed,
         });
       } finally {
-        setIsProcessing(false);
-        setProgress(null);
+        if (isMountedRef.current && requestId === cutoutRequestIdRef.current) {
+          setIsProcessing(false);
+          setProgress(null);
+        }
       }
     },
     [applyMaskDataToCanvases, t]
@@ -350,28 +400,53 @@ export function SingleStudioEditor({
       const img = new Image();
       if (!isBlobUrl) img.crossOrigin = 'anonymous';
       img.onload = () => {
-        originalImageRef.current = img;
+        if (!isMountedRef.current) {
+          if (isBlobUrl) URL.revokeObjectURL(srcUrl);
+          return;
+        }
         const w = img.naturalWidth || img.width;
         const h = img.naturalHeight || img.height;
+        const dimCheck = validateImageDimensions(w, h);
+        if (!dimCheck.valid) {
+          if (isBlobUrl) URL.revokeObjectURL(srcUrl);
+          setStatusNotice({
+            type: 'error',
+            message: dimCheck.reason === 'too_large' ? t.errImageTooLarge : t.errDecodeFailed,
+          });
+          return;
+        }
+
+        if (originalBlobUrlRef.current && originalBlobUrlRef.current !== srcUrl) {
+          URL.revokeObjectURL(originalBlobUrlRef.current);
+        }
+        originalBlobUrlRef.current = isBlobUrl ? srcUrl : null;
+
+        originalImageRef.current = img;
         setOrigDims({ width: w, height: h });
         setOriginalUrl(srcUrl);
-        setOriginalName(fileName.replace(/\.[^.]+$/, '') || 'studio-design');
+        const baseName = fileName.replace(/\.[^.]+$/, '') || 'studio-design';
+        setOriginalName(baseName);
+        setExportFilename(`${baseName}-noorcut`);
         setHasCutout(false);
         setZoom(1);
         setPan({ x: 0, y: 0 });
         setViewMode('studio');
-        runCutoutForImage(img, selectedEngine);
+        void runCutoutForImage(img, selectedEngine);
       };
       img.onerror = () => {
-        setStatusNotice({ type: 'error', message: 'Could not decode image file.' });
+        if (isBlobUrl) URL.revokeObjectURL(srcUrl);
+        setStatusNotice({ type: 'error', message: t.errDecodeFailed });
       };
       img.src = srcUrl;
     },
-    [runCutoutForImage, selectedEngine]
+    [runCutoutForImage, selectedEngine, t]
   );
 
   const handleFileSelected = (file: File) => {
-    if (!file.type.startsWith('image/')) return;
+    if (!isSupportedImageFile(file)) {
+      setStatusNotice({ type: 'error', message: t.errUnsupportedFormat });
+      return;
+    }
     const blobUrl = URL.createObjectURL(file);
     loadImageSource(blobUrl, file.name, true);
   };
@@ -400,9 +475,10 @@ export function SingleStudioEditor({
     }
   }, [applyMaskDataToCanvases]);
 
-  // Keyboard shortcuts Ctrl+Z / Ctrl+Y
+  // Keyboard shortcuts Ctrl+Z / Ctrl+Y (skip editable text inputs)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      if (isEditableElement(e.target)) return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
         if (e.shiftKey) {
           e.preventDefault();
@@ -431,23 +507,61 @@ export function SingleStudioEditor({
   };
 
   const handleUploadBgImage = (file: File) => {
+    if (!isSupportedImageFile(file)) {
+      setStatusNotice({ type: 'error', message: t.errUnsupportedFormat });
+      return;
+    }
     const url = URL.createObjectURL(file);
     const img = new Image();
     img.onload = () => {
+      const check = validateImageDimensions(
+        img.naturalWidth || img.width,
+        img.naturalHeight || img.height
+      );
+      if (!check.valid) {
+        URL.revokeObjectURL(url);
+        setStatusNotice({
+          type: 'error',
+          message: check.reason === 'too_large' ? t.errImageTooLarge : t.errDecodeFailed,
+        });
+        return;
+      }
+      if (customBgBlobUrlRef.current && customBgBlobUrlRef.current !== url) {
+        URL.revokeObjectURL(customBgBlobUrlRef.current);
+      }
+      customBgBlobUrlRef.current = url;
       customBgImageRef.current = img;
+      setStatusNotice(null);
       setBgSettings((prev) => ({ ...prev, type: 'image', customImageUrl: url }));
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      setStatusNotice({ type: 'error', message: t.errDecodeFailed });
     };
     img.src = url;
   };
 
+  const preloadFontAndRedraw = (fontFamily: string) => {
+    if (typeof document === 'undefined' || !document.fonts?.load) return;
+    void document.fonts
+      .load(`800 48px "${fontFamily}"`)
+      .then(() => {
+        if (isMountedRef.current) redrawPreview();
+      })
+      .catch(() => {
+        // Ignore font load errors; canvas falls back gracefully
+      });
+  };
+
   const handleAddText = () => {
+    const fontFamily = isRtl ? 'Cairo' : 'Anton';
     const newLayer: TextLayer = {
       id: `txt-${Date.now()}`,
       text: t.defaultTextContent,
       x: 0.5,
       y: 0.34,
       fontSize: 150,
-      fontFamily: isRtl ? 'Cairo' : 'Anton',
+      fontFamily,
       color: '#111827',
       strokeColor: '#FFFFFF',
       strokeWidth: 4,
@@ -460,10 +574,14 @@ export function SingleStudioEditor({
     setTextLayers((prev) => [...prev, newLayer]);
     setSelectedTextId(newLayer.id);
     setViewMode('studio');
+    preloadFontAndRedraw(fontFamily);
   };
 
   const handleUpdateText = (id: string, patch: Partial<TextLayer>) => {
     setTextLayers((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch } : l)));
+    if (patch.fontFamily) {
+      preloadFontAndRedraw(patch.fontFamily);
+    }
   };
 
   const handleDeleteText = (id: string) => {
@@ -560,8 +678,8 @@ export function SingleStudioEditor({
       const rect = canvas.getBoundingClientRect();
       setBrushCursor({
         visible: true,
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top,
+        x: (e.clientX - rect.left) / zoom,
+        y: (e.clientY - rect.top) / zoom,
       });
     } else if (brushCursor.visible) {
       setBrushCursor((p) => ({ ...p, visible: false }));
@@ -657,25 +775,56 @@ export function SingleStudioEditor({
     [targetDimensions, exportSettings.format, exportSettings.quality]
   );
 
-  const handleDownload = async () => {
+  const handleDownload = useCallback(async () => {
     if (!compositeState || !subjectCanvasRef.current) return;
-    const blob = await exportStudioCompositionBlob(
-      compositeState,
-      subjectCanvasRef.current,
-      exportSettings.format,
-      exportSettings.quality
-    );
-    const ext = exportSettings.format === 'jpeg' ? 'jpg' : exportSettings.format;
-    const filename = `${originalName}-noorcut.${ext}`;
-    await saveBlobToDevice(blob, filename);
-    onExportComplete?.({
-      filename,
-      blob,
-      format: exportSettings.format,
-      width: targetDimensions.width,
-      height: targetDimensions.height,
-    });
-  };
+    try {
+      const blob = await exportStudioCompositionBlob(
+        compositeState,
+        subjectCanvasRef.current,
+        exportSettings.format,
+        exportSettings.quality
+      );
+      const filename = buildExportFilename(
+        exportFilename,
+        `${originalName}-noorcut`,
+        exportSettings.format
+      );
+      await saveBlobToDevice(blob, filename);
+      onExportComplete?.({
+        filename,
+        blob,
+        format: exportSettings.format,
+        width: targetDimensions.width,
+        height: targetDimensions.height,
+      });
+    } catch {
+      setStatusNotice({ type: 'error', message: t.errExportFailed });
+    }
+  }, [
+    compositeState,
+    exportFilename,
+    exportSettings.format,
+    exportSettings.quality,
+    onExportComplete,
+    originalName,
+    t.errExportFailed,
+    targetDimensions.height,
+    targetDimensions.width,
+  ]);
+
+  useEffect(() => {
+    onExportReadyChange?.(hasCutout);
+  }, [hasCutout, onExportReadyChange]);
+
+  const lastExportTriggerRef = useRef(externalExportTrigger);
+  const handleDownloadRef = useRef(handleDownload);
+  handleDownloadRef.current = handleDownload;
+  useEffect(() => {
+    if (externalExportTrigger !== lastExportTriggerRef.current) {
+      lastExportTriggerRef.current = externalExportTrigger;
+      void handleDownloadRef.current();
+    }
+  }, [externalExportTrigger]);
 
   return (
     <div className="space-y-4">
@@ -694,15 +843,30 @@ export function SingleStudioEditor({
       {/* Non-blocking Status / Fallback / Timing Banner */}
       {statusNotice && (
         <div
-          role="status"
-          className={`flex items-center gap-2.5 rounded-xl border px-4 py-2.5 text-xs font-medium ${
+          role={statusNotice.type === 'error' ? 'alert' : 'status'}
+          className={`flex flex-wrap items-center justify-between gap-2.5 rounded-xl border px-4 py-2.5 text-xs font-medium ${
             statusNotice.type === 'error'
               ? 'border-red-200 bg-red-50 text-red-800'
               : 'border-amber-200 bg-amber-50 text-amber-900'
           }`}
         >
-          <AlertCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
-          <span>{statusNotice.message}</span>
+          <div className="flex items-center gap-2.5 min-w-0">
+            <AlertCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
+            <span>{statusNotice.message}</span>
+          </div>
+          {statusNotice.type === 'error' && originalImageRef.current && !isProcessing && (
+            <button
+              type="button"
+              onClick={() =>
+                originalImageRef.current &&
+                void runCutoutForImage(originalImageRef.current, selectedEngine)
+              }
+              className="inline-flex items-center gap-1 rounded-lg border border-red-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-red-700 hover:bg-red-100 cursor-pointer shrink-0"
+            >
+              <RefreshCw className="h-3 w-3" aria-hidden="true" />
+              <span>{t.retryBtn}</span>
+            </button>
+          )}
         </div>
       )}
 
@@ -1030,6 +1194,9 @@ export function SingleStudioEditor({
             onChangeBgAdjust={setBgAdjust}
             exportSettings={exportSettings}
             onChangeExport={setExportSettings}
+            exportFilename={exportFilename}
+            exportFilenamePlaceholder={`${originalName}-noorcut`}
+            onChangeExportFilename={setExportFilename}
             estimatedBytes={estimatedBytes}
             targetDimensions={targetDimensions}
             onDownload={handleDownload}

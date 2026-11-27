@@ -59,6 +59,9 @@ interface ToolSidebarProps {
   onChangeBgAdjust: (next: ColorAdjustments) => void;
   exportSettings: ExportSettings;
   onChangeExport: (next: ExportSettings) => void;
+  exportFilename: string;
+  exportFilenamePlaceholder: string;
+  onChangeExportFilename: (value: string) => void;
   estimatedBytes: number;
   targetDimensions: { width: number; height: number };
   onDownload: () => void;
@@ -91,6 +94,9 @@ export function ToolSidebar({
   onChangeBgAdjust,
   exportSettings,
   onChangeExport,
+  exportFilename,
+  exportFilenamePlaceholder,
+  onChangeExportFilename,
   estimatedBytes,
   targetDimensions,
   onDownload,
@@ -747,6 +753,32 @@ export function ToolSidebar({
                 }
               />
             )}
+
+            <div className="space-y-1.5">
+              <label
+                htmlFor="export-filename-input"
+                className="block text-xs font-semibold text-[#111827]"
+              >
+                {t.exportFilenameLabel}
+              </label>
+              <div
+                dir="ltr"
+                className="flex items-center overflow-hidden rounded-xl border border-[#E5E7EB] bg-[#F9FAFB] focus-within:border-[#0D9488] focus-within:bg-white transition-colors"
+              >
+                <input
+                  id="export-filename-input"
+                  type="text"
+                  value={exportFilename}
+                  onChange={(e) => onChangeExportFilename(e.target.value)}
+                  placeholder={exportFilenamePlaceholder || t.exportFilenamePlaceholder}
+                  disabled={!hasCutout}
+                  className="min-w-0 flex-1 bg-transparent px-3 py-2 font-mono text-xs text-[#111827] placeholder:text-[#9CA3AF] focus:outline-none disabled:opacity-50"
+                />
+                <span className="border-l border-[#E5E7EB] bg-[#F3F4F6] px-2.5 py-2 font-mono text-xs font-semibold text-[#4B5563]">
+                  .{exportSettings.format === 'jpeg' ? 'jpg' : exportSettings.format}
+                </span>
+              </div>
+            </div>
 
             <div className="flex items-center justify-between rounded-xl border border-[#E5E7EB] bg-[#F9FAFB] px-3.5 py-2.5 text-xs">
               <span className="text-[#4B5563]">{t.estimatedSizeLabel}</span>

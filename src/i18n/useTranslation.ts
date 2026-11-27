@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { Language } from '../types/studio';
+import { BRAND_CONFIG } from '../config';
 import { TRANSLATIONS, type TranslationDictionary } from './translations';
 
 const STORAGE_KEY = 'noorcut_lang';
@@ -22,6 +23,7 @@ export function applyDocumentDirection(lang: Language): void {
   const dir = lang === 'ar' ? 'rtl' : 'ltr';
   document.documentElement.dir = dir;
   document.documentElement.lang = lang;
+  document.title = `${BRAND_CONFIG.names[lang]} — ${TRANSLATIONS[lang].heroTitle}`;
 }
 
 export function useTranslation() {

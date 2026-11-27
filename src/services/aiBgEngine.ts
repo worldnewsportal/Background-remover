@@ -1,4 +1,5 @@
 import type { CutoutResult, EngineId, EngineProgress } from '../types/studio';
+import { computeInferenceDimensions, MAX_INFERENCE_EDGE_PX } from '../utils/imageLimits';
 
 // Un-bundled native dynamic import helper to prevent Vite/Rollup from mangling WASM/WebGPU exports
 const importModule = new Function('url', 'return import(url)') as (url: string) => Promise<any>;
@@ -7,6 +8,7 @@ const TRANSFORMERS_CDN = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers
 const IMGLY_CDN = 'https://esm.sh/@imgly/background-removal@1.5.5';
 const IMGLY_ASSETS_CDN = 'https://staticimgly.com/@imgly/background-removal-data/1.5.5/dist/';
 const GRADIO_CDN = 'https://cdn.jsdelivr.net/npm/@gradio/client/+esm';
+const CLOUD_TIMEOUT_MS = 25000;
 
 interface CachedTransformers {
   mod: any;
@@ -25,19 +27,40 @@ export function isModelCached(engine: EngineId): boolean {
   return cachedGradio !== null;
 }
 
-async function imageElementToBlob(img: HTMLImageElement): Promise<Blob> {
+function disposeCanvas(canvas: HTMLCanvasElement): void {
+  canvas.width = 0;
+  canvas.height = 0;
+}
+
+/**
+ * Encodes the image for intermediate AI inference.
+ * Caps only the neural input side at 2048px so high-res phone cameras (12MP–48MP)
+ * never cause mobile OOM while final masks are upscaled back to 100% original resolution.
+ */
+async function imageElementToInferenceBlob(img: HTMLImageElement): Promise<Blob> {
+  const origW = img.naturalWidth || img.width;
+  const origH = img.naturalHeight || img.height;
+  const { width, height } = computeInferenceDimensions(origW, origH, MAX_INFERENCE_EDGE_PX);
+
   const canvas = document.createElement('canvas');
-  canvas.width = img.naturalWidth || img.width;
-  canvas.height = img.naturalHeight || img.height;
+  canvas.width = width;
+  canvas.height = height;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Canvas 2D context unavailable');
-  ctx.drawImage(img, 0, 0);
-  return new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob(
-      (blob) => (blob ? resolve(blob) : reject(new Error('Failed to encode image blob'))),
-      'image/png'
-    );
-  });
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(img, 0, 0, width, height);
+
+  try {
+    return await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(
+        (blob) => (blob ? resolve(blob) : reject(new Error('Failed to encode image blob'))),
+        'image/png'
+      );
+    });
+  } finally {
+    disposeCanvas(canvas);
+  }
 }
 
 function loadImageFromUrl(url: string): Promise<HTMLImageElement> {
@@ -60,17 +83,23 @@ function extractAlphaMaskFromImage(
   canvas.height = targetH;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Canvas 2D context unavailable');
-  ctx.drawImage(processedImg, 0, 0, targetW, targetH);
-  const rgba = ctx.getImageData(0, 0, targetW, targetH);
-  const data = rgba.data;
-  for (let i = 0; i < data.length; i += 4) {
-    const alpha = data[i + 3];
-    data[i] = 255;
-    data[i + 1] = 255;
-    data[i + 2] = 255;
-    data[i + 3] = alpha;
+  try {
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(processedImg, 0, 0, targetW, targetH);
+    const rgba = ctx.getImageData(0, 0, targetW, targetH);
+    const data = rgba.data;
+    for (let i = 0; i < data.length; i += 4) {
+      const alpha = data[i + 3];
+      data[i] = 255;
+      data[i + 1] = 255;
+      data[i + 2] = 255;
+      data[i + 3] = alpha;
+    }
+    return rgba;
+  } finally {
+    disposeCanvas(canvas);
   }
-  return rgba;
 }
 
 async function verifyWebGpuSafe(): Promise<boolean> {
@@ -82,6 +111,33 @@ async function verifyWebGpuSafe(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+function buildProcessorConfig(modelId: string) {
+  if (modelId === 'Xenova/modnet') {
+    return {
+      do_normalize: true,
+      do_pad: false,
+      do_rescale: true,
+      do_resize: true,
+      image_mean: [0.5, 0.5, 0.5],
+      image_std: [0.5, 0.5, 0.5],
+      resample: 2,
+      rescale_factor: 0.00392156862745098,
+      size: { width: 512, height: 512 },
+    };
+  }
+  return {
+    do_normalize: true,
+    do_pad: false,
+    do_rescale: true,
+    do_resize: true,
+    image_mean: [0.5, 0.5, 0.5],
+    image_std: [1, 1, 1],
+    resample: 2,
+    rescale_factor: 0.00392156862745098,
+    size: { width: 1024, height: 1024 },
+  };
 }
 
 async function loadTransformersEngine(
@@ -103,11 +159,11 @@ async function loadTransformersEngine(
         : 1;
   }
 
-  // Safely default to 'wasm' unless WebGPU adapter is verified; wrap in try/catch fallback
+  // Safely default to quantized WASM; prepend WebGPU FP16 only when adapter is verified
   const hasWebGpu = await verifyWebGpuSafe();
   const deviceCandidates: Array<{ modelId: string; device: 'wasm' | 'webgpu'; dtype: string }> = [
-    { modelId: 'briaai/RMBG-1.4', device: 'wasm', dtype: 'fp16' },
     { modelId: 'briaai/RMBG-1.4', device: 'wasm', dtype: 'q8' },
+    { modelId: 'briaai/RMBG-1.4', device: 'wasm', dtype: 'fp32' },
     { modelId: 'Xenova/modnet', device: 'wasm', dtype: 'q8' },
   ];
   if (hasWebGpu) {
@@ -150,17 +206,7 @@ async function loadTransformersEngine(
         progress_callback: handleProgress,
       });
       const processor = await AutoProcessor.from_pretrained(candidate.modelId, {
-        config: {
-          do_normalize: true,
-          do_pad: false,
-          do_rescale: true,
-          do_resize: true,
-          image_mean: [0.5, 0.5, 0.5],
-          image_std: [1, 1, 1],
-          resample: 2,
-          rescale_factor: 0.00392156862745098,
-          size: { width: 1024, height: 1024 },
-        },
+        config: buildProcessorConfig(candidate.modelId),
       });
       cachedTransformers = { mod, model, processor, modelId: candidate.modelId };
       return cachedTransformers;
@@ -182,8 +228,10 @@ async function runEngine1Rmbg(
   const { mod, model, processor } = await loadTransformersEngine(onProgress);
   onProgress?.({ stage: 'inferring', progress: 93 });
 
-  const blob = await imageElementToBlob(img);
+  const blob = await imageElementToInferenceBlob(img);
   const objectUrl = URL.createObjectURL(blob);
+  const smallCanvas = document.createElement('canvas');
+  const outCanvas = document.createElement('canvas');
 
   try {
     const rawImage = await mod.RawImage.fromURL(objectUrl);
@@ -210,7 +258,6 @@ async function runEngine1Rmbg(
     const needsNorm = maxVal > 1.05 || minVal < -0.05;
     const range = maxVal - minVal || 1;
 
-    const smallCanvas = document.createElement('canvas');
     smallCanvas.width = maskW;
     smallCanvas.height = maskH;
     const smallCtx = smallCanvas.getContext('2d');
@@ -233,7 +280,6 @@ async function runEngine1Rmbg(
     smallCtx.putImageData(smallImgData, 0, 0);
 
     // Bilinearly upscale mask back to exact original resolution
-    const outCanvas = document.createElement('canvas');
     outCanvas.width = width;
     outCanvas.height = height;
     const outCtx = outCanvas.getContext('2d');
@@ -245,6 +291,8 @@ async function runEngine1Rmbg(
     return outCtx.getImageData(0, 0, width, height);
   } finally {
     URL.revokeObjectURL(objectUrl);
+    disposeCanvas(smallCanvas);
+    disposeCanvas(outCanvas);
   }
 }
 
@@ -264,7 +312,7 @@ async function runEngine2Imgly(
     throw new Error('IMG.LY removeBackground export unavailable');
   }
 
-  const inputBlob = await imageElementToBlob(img);
+  const inputBlob = await imageElementToInferenceBlob(img);
   const resultBlob: Blob = await removeBackground(inputBlob, {
     publicPath: IMGLY_ASSETS_CDN,
     device: 'cpu',
@@ -297,6 +345,10 @@ async function runEngine3Cloud(
   img: HTMLImageElement,
   onProgress?: (p: EngineProgress) => void
 ): Promise<ImageData> {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    throw new Error('CLOUD_OFFLINE');
+  }
+
   const width = img.naturalWidth || img.width;
   const height = img.naturalHeight || img.height;
 
@@ -305,7 +357,7 @@ async function runEngine3Cloud(
     cachedGradio = await importModule(GRADIO_CDN);
   }
   const { Client, handle_file } = cachedGradio;
-  const inputBlob = await imageElementToBlob(img);
+  const inputBlob = await imageElementToInferenceBlob(img);
 
   const cloudTask = async (): Promise<ImageData> => {
     onProgress?.({ stage: 'inferring', progress: 45 });
@@ -334,11 +386,16 @@ async function runEngine3Cloud(
     return extractAlphaMaskFromImage(outImg, width, height);
   };
 
+  let timerId: ReturnType<typeof setTimeout> | null = null;
   const timeoutPromise = new Promise<never>((_, reject) => {
-    setTimeout(() => reject(new Error('CLOUD_TIMEOUT')), 25000);
+    timerId = setTimeout(() => reject(new Error('CLOUD_TIMEOUT')), CLOUD_TIMEOUT_MS);
   });
 
-  return Promise.race([cloudTask(), timeoutPromise]);
+  try {
+    return await Promise.race([cloudTask(), timeoutPromise]);
+  } finally {
+    if (timerId !== null) clearTimeout(timerId);
+  }
 }
 
 export async function removeBackgroundWithEngine(
@@ -405,7 +462,7 @@ export async function removeBackgroundWithEngine(
     };
   } catch (err) {
     const reason =
-      err instanceof Error && err.message === 'CLOUD_TIMEOUT' ? 'cloud_busy' : 'cloud_busy';
+      err instanceof Error && err.message === 'CLOUD_OFFLINE' ? 'cloud_offline' : 'cloud_busy';
     const maskData = await runEngine1Rmbg(img, onProgress);
     onProgress?.({ stage: 'postprocessing', progress: 100 });
     return {

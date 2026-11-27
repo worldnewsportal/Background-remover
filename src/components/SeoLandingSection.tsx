@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { Check, ChevronDown, Share2 } from 'lucide-react';
 import { BRAND_CONFIG } from '../config';
 import type { TranslationDictionary } from '../i18n/translations';
 import type { Language } from '../types/studio';
@@ -11,6 +11,30 @@ interface SeoLandingSectionProps {
 
 export function SeoLandingSection({ t, lang }: SeoLandingSectionProps) {
   const [openFaq, setOpenFaq] = useState<number>(0);
+  const [linkCopied, setLinkCopied] = useState(false);
+
+  const handleShareApp = async () => {
+    const url = typeof window !== 'undefined' ? window.location.href : `https://${BRAND_CONFIG.domain}`;
+    if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+      try {
+        await navigator.share({
+          title: BRAND_CONFIG.names[lang],
+          text: t.heroTitle,
+          url,
+        });
+        return;
+      } catch {
+        // Fall through to clipboard copy
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      setLinkCopied(true);
+      window.setTimeout(() => setLinkCopied(false), 2200);
+    } catch {
+      // Ignore clipboard failure
+    }
+  };
 
   const features = [
     { title: t.feat1Title, desc: t.feat1Desc },
@@ -109,13 +133,41 @@ export function SeoLandingSection({ t, lang }: SeoLandingSectionProps) {
 
       {/* Quiet Footer */}
       <footer className="border-t border-[#E5E7EB] bg-white">
-        <div className="mx-auto flex max-w-[1440px] flex-col sm:flex-row items-center justify-between gap-4 px-4 py-6 sm:px-6 lg:px-8 text-xs text-[#4B5563]">
-          <div className="flex items-center gap-2 font-semibold text-[#111827]">
+        <div className="mx-auto flex max-w-[1440px] flex-col md:flex-row items-center justify-between gap-4 px-4 py-6 sm:px-6 lg:px-8 text-xs text-[#4B5563]">
+          <div className="flex flex-wrap items-center justify-center gap-2 font-semibold text-[#111827]">
             <span>{BRAND_CONFIG.names[lang]}</span>
             <span aria-hidden="true">·</span>
             <span className="font-normal text-[#4B5563]">{t.footerPrivacyNote}</span>
           </div>
-          <div className="flex items-center gap-3 tabular-nums">
+
+          <div className="flex flex-wrap items-center justify-center gap-3 tabular-nums">
+            <a
+              href={`./privacy-terms.html?lang=${lang}#privacy`}
+              className="font-medium text-[#374151] hover:text-[#0D9488] underline-offset-4 hover:underline transition-colors"
+            >
+              {t.footerPrivacyLink}
+            </a>
+            <span aria-hidden="true">·</span>
+            <a
+              href={`./privacy-terms.html?lang=${lang}#terms`}
+              className="font-medium text-[#374151] hover:text-[#0D9488] underline-offset-4 hover:underline transition-colors"
+            >
+              {t.footerTermsLink}
+            </a>
+            <span aria-hidden="true">·</span>
+            <button
+              type="button"
+              onClick={handleShareApp}
+              className="inline-flex items-center gap-1 font-medium text-[#0D9488] hover:text-[#0F766E] cursor-pointer"
+            >
+              {linkCopied ? (
+                <Check className="h-3.5 w-3.5" aria-hidden="true" />
+              ) : (
+                <Share2 className="h-3.5 w-3.5" aria-hidden="true" />
+              )}
+              <span>{linkCopied ? t.shareAppCopied : t.shareAppBtn}</span>
+            </button>
+            <span aria-hidden="true">·</span>
             <span>{BRAND_CONFIG.supportEmail}</span>
             <span aria-hidden="true">·</span>
             <span>

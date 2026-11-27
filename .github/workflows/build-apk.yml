@@ -1,22 +1,29 @@
-name: Build Android APK
+name: Build & Release Android APK
 
 on:
   push:
     branches:
       - main
       - master
+    tags:
+      - 'v*'
   pull_request:
     branches:
       - main
       - master
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Optional release tag (e.g. v1.0.1). Leave blank to auto-tag v1.0.<run_number>.'
+        required: false
+        default: ''
 
 jobs:
   build-android-apk:
-    name: Build NoorCut Studio APK
+    name: Build & Release NoorCut Studio APK
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
 
     steps:
       - name: Checkout repository
@@ -37,7 +44,7 @@ jobs:
 
       - name: Run unit tests and TypeScript check
         run: |
-          npx --yes tsx --test src/utils/canvasMath.test.ts src/utils/recentExports.test.ts src/i18n/translations.test.ts
+          npx --yes tsx --test src/utils/canvasMath.test.ts src/utils/recentExports.test.ts src/utils/keyboardShortcuts.test.ts src/utils/batchQueue.test.ts src/utils/imageLimits.test.ts src/legal/legalContent.test.ts src/i18n/translations.test.ts
           npm run lint
 
       - name: Build production web bundle
@@ -67,20 +74,79 @@ jobs:
       - name: Setup Gradle cache
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Build Debug APK
+      - name: Decode optional release keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "${{ runner.temp }}/release.keystore"
+            echo "ANDROID_KEYSTORE_PATH=${{ runner.temp }}/release.keystore" >> "$GITHUB_ENV"
+            echo "Custom release keystore configured."
+          else
+            echo "No ANDROID_KEYSTORE_BASE64 secret set; using fallback debug signing for shareable APK."
+          fi
+
+      - name: Build Release & Debug APKs
         working-directory: android
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_ALIAS_PASSWORD: ${{ secrets.ANDROID_KEY_ALIAS_PASSWORD }}
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
+          ./gradlew assembleRelease assembleDebug --no-daemon
 
-      - name: Prepare APK artifact
+      - name: Prepare shareable APK artifacts
         run: |
           mkdir -p apk-output
+          if [ -f android/app/build/outputs/apk/release/app-release.apk ]; then
+            cp android/app/build/outputs/apk/release/app-release.apk apk-output/NoorCut-Studio.apk
+          else
+            cp android/app/build/outputs/apk/debug/app-debug.apk apk-output/NoorCut-Studio.apk
+          fi
           cp android/app/build/outputs/apk/debug/app-debug.apk apk-output/NoorCut-Studio-debug.apk
+          (cd apk-output && sha256sum NoorCut-Studio.apk > NoorCut-Studio.apk.sha256)
 
-      - name: Upload Debug APK Artifact
+      - name: Upload APK Workflow Artifact
         uses: actions/upload-artifact@v4
         with:
           name: NoorCut-Studio-APK
-          path: apk-output/NoorCut-Studio-debug.apk
+          path: |
+            apk-output/NoorCut-Studio.apk
+            apk-output/NoorCut-Studio-debug.apk
+            apk-output/NoorCut-Studio.apk.sha256
           retention-days: 30
+
+      - name: Determine Release Tag
+        if: github.event_name != 'pull_request'
+        id: meta
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          elif [ -n "${{ github.event.inputs.release_tag }}" ]; then
+            TAG="${{ github.event.inputs.release_tag }}"
+          else
+            TAG="v1.0.${GITHUB_RUN_NUMBER}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Publish Shareable GitHub Release
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: NoorCut Studio ${{ steps.meta.outputs.tag }}
+          draft: false
+          prerelease: false
+          make_latest: true
+          generate_release_notes: true
+          body: |
+            ## NoorCut Studio Android APK (${{ steps.meta.outputs.tag }})
+
+            - **Direct Shareable Download:** [`NoorCut-Studio.apk`](https://github.com/${{ github.repository }}/releases/latest/download/NoorCut-Studio.apk)
+            - **SHA-256 Checksum:** Included in `NoorCut-Studio.apk.sha256`
+            - **Privacy Policy & Terms:** Available on the repository GitHub Pages site at `/privacy-terms.html`
+          files: |
+            apk-output/NoorCut-Studio.apk
+            apk-output/NoorCut-Studio-debug.apk
+            apk-output/NoorCut-Studio.apk.sha256

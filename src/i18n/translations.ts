@@ -127,6 +127,8 @@ export interface TranslationDictionary {
   aspectPassport: string;
   exportFormatLabel: string;
   exportQualityLabel: string;
+  exportFilenameLabel: string;
+  exportFilenamePlaceholder: string;
   estimatedSizeLabel: string;
   downloadImageBtn: string;
 
@@ -148,6 +150,7 @@ export interface TranslationDictionary {
   batchStatusError: string;
   batchDownloadSingle: string;
   batchCountLabel: string;
+  batchDelayLabel: string;
 
   // Monetization Slot
   adSlotLabel: string;
@@ -190,6 +193,33 @@ export interface TranslationDictionary {
   recentExportsEmpty: string;
   recentExportsRedownload: string;
   recentExportsClear: string;
+
+  // Keyboard Shortcuts Helper
+  shortcutsBtn: string;
+  shortcutsTitle: string;
+  shortcutsSubtitle: string;
+  shortcutExportLabel: string;
+  shortcutClearRecentLabel: string;
+  shortcutToggleModeLabel: string;
+  shortcutUndoRedoLabel: string;
+  shortcutHelpLabel: string;
+  shortcutNoExportReady: string;
+
+  // Legal & Share Footer
+  footerPrivacyLink: string;
+  footerTermsLink: string;
+  shareAppBtn: string;
+  shareAppCopied: string;
+
+  // Error Handling & Retry UX
+  errUnsupportedFormat: string;
+  errImageTooLarge: string;
+  errDecodeFailed: string;
+  errExportFailed: string;
+  errZipFailed: string;
+  errSampleLoadFailed: string;
+  aiOfflineFallbackNotice: string;
+  retryBtn: string;
 }
 
 export const TRANSLATIONS: Record<Language, TranslationDictionary> = {
@@ -311,6 +341,8 @@ export const TRANSLATIONS: Record<Language, TranslationDictionary> = {
     aspectPassport: 'صورة شخصية (3.5×4.5)',
     exportFormatLabel: 'صيغة الملف',
     exportQualityLabel: 'جودة الضغط',
+    exportFilenameLabel: 'اسم الملف عند التصدير',
+    exportFilenamePlaceholder: 'مثال: product-cutout',
     estimatedSizeLabel: 'الحجم التقديري',
     downloadImageBtn: 'تحميل التصميم الآن',
 
@@ -331,6 +363,7 @@ export const TRANSLATIONS: Record<Language, TranslationDictionary> = {
     batchStatusError: 'تعذر العزل',
     batchDownloadSingle: 'تحميل',
     batchCountLabel: 'صورة في القائمة',
+    batchDelayLabel: 'مهلة بين الصور (مللي ثانية)',
 
     adSlotLabel: 'مساحة إعلانية مخصصة (AdSense)',
 
@@ -377,6 +410,27 @@ export const TRANSLATIONS: Record<Language, TranslationDictionary> = {
     recentExportsEmpty: 'ستظهر هنا آخر 5 صور تم تصديرها في هذه الجلسة لإعادة تحميلها بسرعة.',
     recentExportsRedownload: 'إعادة التحميل',
     recentExportsClear: 'مسح السجل',
+    shortcutsBtn: 'الاختصارات',
+    shortcutsTitle: 'اختصارات لوحة المفاتيح',
+    shortcutsSubtitle: 'اضغط الاختصار أو انقر على أي إجراء لتنفيذه فوراً داخل الاستوديو.',
+    shortcutExportLabel: 'تصدير التصميم أو ملف ZIP',
+    shortcutClearRecentLabel: 'مسح سجل التصديرات الأخيرة',
+    shortcutToggleModeLabel: 'التبديل بين وضع الصورة الواحدة والدفعية',
+    shortcutUndoRedoLabel: 'تراجع / إعادة في الفرشاة السحرية',
+    shortcutHelpLabel: 'فتح أو إغلاق نافذة الاختصارات',
+    shortcutNoExportReady: 'قم بعزل صورة أولاً قبل التصدير.',
+    footerPrivacyLink: 'سياسة الخصوصية',
+    footerTermsLink: 'شروط الاستخدام',
+    shareAppBtn: 'مشاركة التطبيق',
+    shareAppCopied: 'تم نسخ الرابط',
+    errUnsupportedFormat: 'صيغة الملف غير مدعومة. يرجى اختيار صورة بصيغة JPG أو PNG أو WebP أو AVIF.',
+    errImageTooLarge: 'أبعاد الصورة تتجاوز الحد الآمن للمتصفح (12000 بكسل أو 64 ميجابكسل كحد أقصى).',
+    errDecodeFailed: 'تعذر قراءة ملف الصورة. تأكد من سلامة الملف أو جرّب صورة أخرى.',
+    errExportFailed: 'تعذر تصدير الصورة النهائية. يرجى المحاولة مرة أخرى أو اختيار صيغة أخرى.',
+    errZipFailed: 'تعذر إنشاء ملف الأرشيف ZIP. يرجى المحاولة مرة أخرى.',
+    errSampleLoadFailed: 'تعذر تحميل صور الاستوديو الجاهزة. تحقق من الاتصال أو ارفع صورك مباشرة.',
+    aiOfflineFallbackNotice: 'لا يوجد اتصال بالإنترنت — تم التحويل تلقائياً للمحرك المحلي وإكمال العزل بنجاح.',
+    retryBtn: 'إعادة المحاولة',
   },
 
   en: {
@@ -497,6 +551,8 @@ export const TRANSLATIONS: Record<Language, TranslationDictionary> = {
     aspectPassport: 'ID / Passport (3.5×4.5)',
     exportFormatLabel: 'Output Format',
     exportQualityLabel: 'Compression Quality',
+    exportFilenameLabel: 'Output Filename',
+    exportFilenamePlaceholder: 'e.g. product-cutout',
     estimatedSizeLabel: 'Estimated Size',
     downloadImageBtn: 'Download Composition',
 
@@ -517,6 +573,7 @@ export const TRANSLATIONS: Record<Language, TranslationDictionary> = {
     batchStatusError: 'Failed',
     batchDownloadSingle: 'Download',
     batchCountLabel: 'images in queue',
+    batchDelayLabel: 'Delay between images (ms)',
 
     adSlotLabel: 'Sponsored / AdSense Ready Slot',
 
@@ -563,6 +620,27 @@ export const TRANSLATIONS: Record<Language, TranslationDictionary> = {
     recentExportsEmpty: 'Your last 5 exported images in this session will appear here for quick re-download.',
     recentExportsRedownload: 'Re-download',
     recentExportsClear: 'Clear',
+    shortcutsBtn: 'Shortcuts',
+    shortcutsTitle: 'Keyboard Shortcuts',
+    shortcutsSubtitle: 'Use these keyboard shortcuts or click an action below to trigger it immediately.',
+    shortcutExportLabel: 'Export composition or Batch ZIP',
+    shortcutClearRecentLabel: 'Clear Recent Exports',
+    shortcutToggleModeLabel: 'Toggle Single / Bulk Batch mode',
+    shortcutUndoRedoLabel: 'Undo / Redo brush stroke',
+    shortcutHelpLabel: 'Open or close shortcuts helper',
+    shortcutNoExportReady: 'Process an image first before exporting.',
+    footerPrivacyLink: 'Privacy Policy',
+    footerTermsLink: 'Terms of Service',
+    shareAppBtn: 'Share App',
+    shareAppCopied: 'Link copied',
+    errUnsupportedFormat: 'Unsupported file format. Please select a JPG, PNG, WebP, or AVIF image.',
+    errImageTooLarge: 'Image exceeds safe browser memory limits (max 12,000px edge or 64 MP).',
+    errDecodeFailed: 'Could not decode image file. Verify the file is valid or try another image.',
+    errExportFailed: 'Failed to export the image. Please try again or switch output format.',
+    errZipFailed: 'Failed to generate the ZIP archive. Please try again.',
+    errSampleLoadFailed: 'Could not load sample photos. Check connectivity or upload your own files.',
+    aiOfflineFallbackNotice: 'Offline mode detected — automatically switched to local AI and completed your cutout.',
+    retryBtn: 'Retry',
   },
 
   pt: {
@@ -683,6 +761,8 @@ export const TRANSLATIONS: Record<Language, TranslationDictionary> = {
     aspectPassport: 'Documento (3.5×4.5)',
     exportFormatLabel: 'Formato',
     exportQualityLabel: 'Qualidade',
+    exportFilenameLabel: 'Nome do Arquivo',
+    exportFilenamePlaceholder: 'Ex: produto-recorte',
     estimatedSizeLabel: 'Tamanho Estimado',
     downloadImageBtn: 'Baixar Arte Final',
 
@@ -703,6 +783,7 @@ export const TRANSLATIONS: Record<Language, TranslationDictionary> = {
     batchStatusError: 'Erro',
     batchDownloadSingle: 'Baixar',
     batchCountLabel: 'imagens na fila',
+    batchDelayLabel: 'Atraso entre imagens (ms)',
 
     adSlotLabel: 'Espaço Publicitário (AdSense)',
 
@@ -749,6 +830,27 @@ export const TRANSLATIONS: Record<Language, TranslationDictionary> = {
     recentExportsEmpty: 'As últimas 5 imagens exportadas nesta sessão aparecerão aqui para baixar novamente.',
     recentExportsRedownload: 'Baixar novamente',
     recentExportsClear: 'Limpar',
+    shortcutsBtn: 'Atalhos',
+    shortcutsTitle: 'Atalhos de Teclado',
+    shortcutsSubtitle: 'Use estes atalhos ou clique em uma ação abaixo para executá-la imediatamente.',
+    shortcutExportLabel: 'Exportar arte ou ZIP em lote',
+    shortcutClearRecentLabel: 'Limpar exportações recentes',
+    shortcutToggleModeLabel: 'Alternar modo Individual / Lote',
+    shortcutUndoRedoLabel: 'Desfazer / Refazer pincel',
+    shortcutHelpLabel: 'Abrir ou fechar guia de atalhos',
+    shortcutNoExportReady: 'Processe uma imagem antes de exportar.',
+    footerPrivacyLink: 'Política de Privacidade',
+    footerTermsLink: 'Termos de Uso',
+    shareAppBtn: 'Compartilhar App',
+    shareAppCopied: 'Link copiado',
+    errUnsupportedFormat: 'Formato de arquivo não suportado. Escolha uma imagem JPG, PNG, WebP ou AVIF.',
+    errImageTooLarge: 'A imagem excede o limite seguro de memória (máx. 12.000 px ou 64 MP).',
+    errDecodeFailed: 'Não foi possível decodificar a imagem. Verifique o arquivo ou tente outra foto.',
+    errExportFailed: 'Falha ao exportar a imagem. Tente novamente ou altere o formato.',
+    errZipFailed: 'Falha ao gerar o arquivo ZIP. Por favor, tente novamente.',
+    errSampleLoadFailed: 'Não foi possível carregar as fotos de exemplo. Envie suas próprias imagens.',
+    aiOfflineFallbackNotice: 'Sem conexão — alternado automaticamente para IA local com sucesso.',
+    retryBtn: 'Tentar novamente',
   },
 
   fr: {
@@ -869,6 +971,8 @@ export const TRANSLATIONS: Record<Language, TranslationDictionary> = {
     aspectPassport: 'Identité (3.5×4.5)',
     exportFormatLabel: 'Format de sortie',
     exportQualityLabel: 'Qualité',
+    exportFilenameLabel: 'Nom du fichier',
+    exportFilenamePlaceholder: 'Ex : produit-detoure',
     estimatedSizeLabel: 'Taille estimée',
     downloadImageBtn: 'Télécharger le rendu',
 
@@ -889,6 +993,7 @@ export const TRANSLATIONS: Record<Language, TranslationDictionary> = {
     batchStatusError: 'Échec',
     batchDownloadSingle: 'Télécharger',
     batchCountLabel: 'images dans la file',
+    batchDelayLabel: 'Délai entre images (ms)',
 
     adSlotLabel: 'Emplacement publicitaire (AdSense)',
 
@@ -935,5 +1040,26 @@ export const TRANSLATIONS: Record<Language, TranslationDictionary> = {
     recentExportsEmpty: 'Vos 5 dernières images exportées dans cette session s’afficheront ici pour être retéléchargées.',
     recentExportsRedownload: 'Retélécharger',
     recentExportsClear: 'Effacer',
+    shortcutsBtn: 'Raccourcis',
+    shortcutsTitle: 'Raccourcis clavier',
+    shortcutsSubtitle: 'Utilisez ces raccourcis ou cliquez sur une action ci-dessous pour la déclencher.',
+    shortcutExportLabel: 'Exporter le rendu ou le ZIP',
+    shortcutClearRecentLabel: 'Effacer les exports récents',
+    shortcutToggleModeLabel: 'Basculer Studio Unique / Lot',
+    shortcutUndoRedoLabel: 'Annuler / Rétablir le pinceau',
+    shortcutHelpLabel: 'Afficher ou masquer cette aide',
+    shortcutNoExportReady: 'Traitez d’abord une image avant d’exporter.',
+    footerPrivacyLink: 'Confidentialité',
+    footerTermsLink: 'Conditions d’utilisation',
+    shareAppBtn: 'Partager l’app',
+    shareAppCopied: 'Lien copié',
+    errUnsupportedFormat: 'Format de fichier non pris en charge. Choisissez une image JPG, PNG, WebP ou AVIF.',
+    errImageTooLarge: 'L’image dépasse la limite mémoire du navigateur (max 12 000 px ou 64 MP).',
+    errDecodeFailed: 'Impossible de décoder l’image. Vérifiez le fichier ou essayez une autre photo.',
+    errExportFailed: 'Échec de l’exportation de l’image. Réessayez ou changez de format.',
+    errZipFailed: 'Échec de la création de l’archive ZIP. Veuillez réessayer.',
+    errSampleLoadFailed: 'Impossible de charger les images d’exemple. Importez vos propres fichiers.',
+    aiOfflineFallbackNotice: 'Hors ligne détecté — bascule automatique vers l’IA locale réussie.',
+    retryBtn: 'Réessayer',
   },
 };

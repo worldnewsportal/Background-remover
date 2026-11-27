@@ -13,6 +13,7 @@ import {
   computeCoverFit,
   computeTargetDimensions,
 } from './canvasMath';
+import { containsArabicScript } from './imageLimits';
 
 export interface StudioCompositeState {
   originalImage: HTMLImageElement;
@@ -105,6 +106,7 @@ function drawTextLayer(
   ctx.globalAlpha = Math.max(0, Math.min(1, layer.opacity));
   ctx.translate(layer.x * canvasW, layer.y * canvasH);
   ctx.rotate((layer.rotation * Math.PI) / 180);
+  ctx.direction = containsArabicScript(layer.text) ? 'rtl' : 'ltr';
   ctx.font = `800 ${fontPx}px "${layer.fontFamily}", "Cairo", sans-serif`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -268,6 +270,8 @@ export function renderStudioComposition(
     }
     ctx.drawImage(outlineCanvas, fit.x - pad, fit.y - pad);
     ctx.restore();
+    outlineCanvas.width = 0;
+    outlineCanvas.height = 0;
   } else if (hasShadow) {
     ctx.save();
     ctx.shadowColor = hexToRgba(shadowColor, shadowOpacity);
@@ -299,23 +303,33 @@ export async function exportStudioCompositionBlob(
   quality: number
 ): Promise<Blob> {
   const exportCanvas = document.createElement('canvas');
-  renderStudioComposition(exportCanvas, state, subjectCanvas, { forExport: true });
+  let opaqueCanvas: HTMLCanvasElement | null = null;
+  try {
+    renderStudioComposition(exportCanvas, state, subjectCanvas, { forExport: true });
 
-  // JPEG has no alpha channel — composite on white if transparent background selected
-  if (format === 'jpeg' && state.bgSettings.type === 'transparent') {
-    const opaqueCanvas = document.createElement('canvas');
-    opaqueCanvas.width = exportCanvas.width;
-    opaqueCanvas.height = exportCanvas.height;
-    const octx = opaqueCanvas.getContext('2d');
-    if (octx) {
-      octx.fillStyle = '#FFFFFF';
-      octx.fillRect(0, 0, opaqueCanvas.width, opaqueCanvas.height);
-      octx.drawImage(exportCanvas, 0, 0);
-      return canvasToBlob(opaqueCanvas, format, quality);
+    // JPEG has no alpha channel — composite on white if transparent background selected
+    if (format === 'jpeg' && state.bgSettings.type === 'transparent') {
+      opaqueCanvas = document.createElement('canvas');
+      opaqueCanvas.width = exportCanvas.width;
+      opaqueCanvas.height = exportCanvas.height;
+      const octx = opaqueCanvas.getContext('2d');
+      if (octx) {
+        octx.fillStyle = '#FFFFFF';
+        octx.fillRect(0, 0, opaqueCanvas.width, opaqueCanvas.height);
+        octx.drawImage(exportCanvas, 0, 0);
+        return await canvasToBlob(opaqueCanvas, format, quality);
+      }
+    }
+
+    return await canvasToBlob(exportCanvas, format, quality);
+  } finally {
+    exportCanvas.width = 0;
+    exportCanvas.height = 0;
+    if (opaqueCanvas) {
+      opaqueCanvas.width = 0;
+      opaqueCanvas.height = 0;
     }
   }
-
-  return canvasToBlob(exportCanvas, format, quality);
 }
 
 function canvasToBlob(

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   buildCssFilterString,
+  buildExportFilename,
   clampSplitPercent,
   computeContainFit,
   computeCoverFit,
@@ -10,6 +11,7 @@ import {
   formatBytes,
   hitTestTextLayer,
   pushMaskHistory,
+  sanitizeExportBaseName,
 } from './canvasMath';
 import type { TextLayer } from '../types/studio';
 
@@ -124,4 +126,21 @@ test('pushMaskHistory truncates redo stack and enforces maxSteps', () => {
   // Push m4 -> exceeds maxSteps=3, m0 dropped
   state = pushMaskHistory(state.history, state.index, 'm4', 3);
   assert.deepEqual(state.history, ['m1', 'm3', 'm4']);
+});
+
+test('sanitizeExportBaseName and buildExportFilename handle extensions, illegal chars, and fallbacks', () => {
+  assert.equal(sanitizeExportBaseName('  my product: shot?.png  '), 'my-product-shot');
+  assert.equal(sanitizeExportBaseName('   ', 'sneaker-noorcut'), 'sneaker-noorcut');
+  assert.equal(
+    buildExportFilename('holiday sale', 'fallback-noorcut', 'jpeg'),
+    'holiday-sale.jpg'
+  );
+  assert.equal(
+    buildExportFilename('custom-cutout.webp', 'fallback-noorcut', 'png'),
+    'custom-cutout.png'
+  );
+  assert.equal(
+    buildExportFilename('', 'sneaker-sample-noorcut', 'webp'),
+    'sneaker-sample-noorcut.webp'
+  );
 });

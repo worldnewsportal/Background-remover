@@ -1,11 +1,13 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import JSZip from 'jszip';
 import {
+  AlertCircle,
   Archive,
   CheckCircle2,
   Download,
   Loader2,
   Play,
+  RefreshCw,
   Trash2,
   UploadCloud,
   X,
@@ -15,11 +17,26 @@ import type { TranslationDictionary } from '../i18n/translations';
 import { removeBackgroundWithEngine } from '../services/aiBgEngine';
 import type { AspectPresetId, BatchItem, EngineId, ExportFormat } from '../types/studio';
 import { computeContainFit, computeTargetDimensions } from '../utils/canvasMath';
+import {
+  BATCH_DELAY_PRESETS_MS,
+  clampBatchDelayMs,
+  DEFAULT_BATCH_DELAY_MS,
+  shouldPauseBetweenBatchItems,
+  waitForBatchCooldown,
+} from '../utils/batchQueue';
+import {
+  containsArabicScript,
+  isSupportedImageFile,
+  validateImageDimensions,
+} from '../utils/imageLimits';
 import { saveBlobToDevice } from '../utils/mobileDownload';
 
 interface BulkBatchStudioProps {
   t: TranslationDictionary;
   selectedEngine: EngineId;
+  defaultDelayMs?: number;
+  externalExportTrigger?: number;
+  onExportReadyChange?: (ready: boolean) => void;
   onExportComplete?: (entry: {
     filename: string;
     blob: Blob;
@@ -31,35 +48,74 @@ interface BulkBatchStudioProps {
 
 type GlobalBgMode = 'transparent' | '#FFFFFF' | '#F3F4F6' | '#111827';
 
-export function BulkBatchStudio({ t, selectedEngine, onExportComplete }: BulkBatchStudioProps) {
+export function BulkBatchStudio({
+  t,
+  selectedEngine,
+  defaultDelayMs = DEFAULT_BATCH_DELAY_MS,
+  externalExportTrigger = 0,
+  onExportReadyChange,
+  onExportComplete,
+}: BulkBatchStudioProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [items, setItems] = useState<BatchItem[]>([]);
+  const itemsRef = useRef<BatchItem[]>(items);
+  itemsRef.current = items;
+
   const [isProcessing, setIsProcessing] = useState(false);
   const [isZipping, setIsZipping] = useState(false);
+  const [batchError, setBatchError] = useState<string | null>(null);
   const [globalBg, setGlobalBg] = useState<GlobalBgMode>('transparent');
   const [globalRatio, setGlobalRatio] = useState<AspectPresetId>('original');
   const [watermarkText, setWatermarkText] = useState('');
+  const [batchDelayMs, setBatchDelayMs] = useState<number>(() =>
+    clampBatchDelayMs(defaultDelayMs)
+  );
+  const batchDelayRef = useRef<number>(batchDelayMs);
+  batchDelayRef.current = batchDelayMs;
+  const isMountedRef = useRef(true);
 
-  const appendFiles = useCallback((files: FileList | File[]) => {
-    const valid = Array.from(files).filter((f) => f.type.startsWith('image/'));
-    if (valid.length === 0) return;
-
-    const newItems: BatchItem[] = valid.map((file, idx) => ({
-      id: `${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 7)}`,
-      file,
-      name: file.name,
-      originalUrl: URL.createObjectURL(file),
-      status: 'queued',
-      progress: 0,
-    }));
-    setItems((prev) => [...prev, ...newItems]);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      itemsRef.current.forEach((i) => {
+        if (i.originalUrl) URL.revokeObjectURL(i.originalUrl);
+        if (i.resultCutoutUrl) URL.revokeObjectURL(i.resultCutoutUrl);
+      });
+    };
   }, []);
 
+  const appendFiles = useCallback(
+    (files: FileList | File[]) => {
+      const allFiles = Array.from(files);
+      const valid = allFiles.filter((f) => isSupportedImageFile(f));
+      if (valid.length < allFiles.length) {
+        setBatchError(t.errUnsupportedFormat);
+      } else {
+        setBatchError(null);
+      }
+      if (valid.length === 0) return;
+
+      const newItems: BatchItem[] = valid.map((file, idx) => ({
+        id: `${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 7)}`,
+        file,
+        name: file.name,
+        originalUrl: URL.createObjectURL(file),
+        status: 'queued',
+        progress: 0,
+      }));
+      setItems((prev) => [...prev, ...newItems]);
+    },
+    [t.errUnsupportedFormat]
+  );
+
   const addSampleBatch = useCallback(async () => {
+    setBatchError(null);
     const loadedFiles: File[] = [];
     for (const sample of SAMPLE_PHOTOS) {
       try {
         const res = await fetch(sample.url);
+        if (!res.ok) continue;
         const blob = await res.blob();
         loadedFiles.push(
           new File([blob], `${sample.id}-studio.jpg`, { type: blob.type || 'image/jpeg' })
@@ -70,12 +126,15 @@ export function BulkBatchStudio({ t, selectedEngine, onExportComplete }: BulkBat
     }
     if (loadedFiles.length > 0) {
       appendFiles(loadedFiles);
+    } else {
+      setBatchError(t.errSampleLoadFailed);
     }
-  }, [appendFiles]);
+  }, [appendFiles, t.errSampleLoadFailed]);
 
   const removeItem = (id: string) => {
     setItems((prev) => {
       const target = prev.find((i) => i.id === id);
+      if (target?.status === 'processing') return prev;
       if (target?.originalUrl) URL.revokeObjectURL(target.originalUrl);
       if (target?.resultCutoutUrl) URL.revokeObjectURL(target.resultCutoutUrl);
       return prev.filter((i) => i.id !== id);
@@ -83,11 +142,13 @@ export function BulkBatchStudio({ t, selectedEngine, onExportComplete }: BulkBat
   };
 
   const clearAll = () => {
+    if (isProcessing) return;
     items.forEach((i) => {
       if (i.originalUrl) URL.revokeObjectURL(i.originalUrl);
       if (i.resultCutoutUrl) URL.revokeObjectURL(i.resultCutoutUrl);
     });
     setItems([]);
+    setBatchError(null);
   };
 
   const renderBatchOutputBlob = async (
@@ -98,156 +159,213 @@ export function BulkBatchStudio({ t, selectedEngine, onExportComplete }: BulkBat
     const origH = origImg.naturalHeight || origImg.height;
 
     const maskCanvas = document.createElement('canvas');
-    maskCanvas.width = origW;
-    maskCanvas.height = origH;
-    maskCanvas.getContext('2d')?.putImageData(maskData, 0, 0);
-
     const subjectCanvas = document.createElement('canvas');
-    subjectCanvas.width = origW;
-    subjectCanvas.height = origH;
-    const sctx = subjectCanvas.getContext('2d')!;
-    sctx.drawImage(origImg, 0, 0, origW, origH);
-    sctx.globalCompositeOperation = 'destination-in';
-    sctx.drawImage(maskCanvas, 0, 0, origW, origH);
-    sctx.globalCompositeOperation = 'source-over';
-
-    const dims = computeTargetDimensions(origW, origH, globalRatio);
     const outCanvas = document.createElement('canvas');
-    outCanvas.width = dims.width;
-    outCanvas.height = dims.height;
-    const octx = outCanvas.getContext('2d')!;
 
-    if (globalBg !== 'transparent') {
-      octx.fillStyle = globalBg;
-      octx.fillRect(0, 0, dims.width, dims.height);
+    try {
+      maskCanvas.width = origW;
+      maskCanvas.height = origH;
+      maskCanvas.getContext('2d')?.putImageData(maskData, 0, 0);
+
+      subjectCanvas.width = origW;
+      subjectCanvas.height = origH;
+      const sctx = subjectCanvas.getContext('2d')!;
+      sctx.drawImage(origImg, 0, 0, origW, origH);
+      sctx.globalCompositeOperation = 'destination-in';
+      sctx.drawImage(maskCanvas, 0, 0, origW, origH);
+      sctx.globalCompositeOperation = 'source-over';
+
+      const dims = computeTargetDimensions(origW, origH, globalRatio);
+      outCanvas.width = dims.width;
+      outCanvas.height = dims.height;
+      const octx = outCanvas.getContext('2d')!;
+
+      if (globalBg !== 'transparent') {
+        octx.fillStyle = globalBg;
+        octx.fillRect(0, 0, dims.width, dims.height);
+      }
+
+      const fit =
+        globalRatio === 'original'
+          ? { x: 0, y: 0, width: dims.width, height: dims.height }
+          : computeContainFit(origW, origH, dims.width, dims.height, 0.05);
+
+      octx.drawImage(subjectCanvas, fit.x, fit.y, fit.width, fit.height);
+
+      const wm = watermarkText.trim();
+      if (wm) {
+        const fontPx = Math.max(18, Math.round(dims.height * 0.036));
+        octx.save();
+        octx.direction = containsArabicScript(wm) ? 'rtl' : 'ltr';
+        octx.font = `700 ${fontPx}px "Cairo", "Plus Jakarta Sans", sans-serif`;
+        octx.fillStyle =
+          globalBg === '#111827' ? 'rgba(255,255,255,0.45)' : 'rgba(17,24,39,0.35)';
+        octx.textAlign = 'end';
+        octx.textBaseline = 'bottom';
+        octx.fillText(wm, dims.width - fontPx, dims.height - fontPx * 0.75);
+        octx.restore();
+      }
+
+      return await new Promise<Blob>((resolve, reject) => {
+        outCanvas.toBlob(
+          (b) => (b ? resolve(b) : reject(new Error('PNG encode failed'))),
+          'image/png'
+        );
+      });
+    } finally {
+      maskCanvas.width = 0;
+      maskCanvas.height = 0;
+      subjectCanvas.width = 0;
+      subjectCanvas.height = 0;
+      outCanvas.width = 0;
+      outCanvas.height = 0;
     }
-
-    const fit =
-      globalRatio === 'original'
-        ? { x: 0, y: 0, width: dims.width, height: dims.height }
-        : computeContainFit(origW, origH, dims.width, dims.height, 0.05);
-
-    octx.drawImage(subjectCanvas, fit.x, fit.y, fit.width, fit.height);
-
-    if (watermarkText.trim()) {
-      const fontPx = Math.max(18, Math.round(dims.height * 0.036));
-      octx.save();
-      octx.font = `700 ${fontPx}px "Cairo", "Plus Jakarta Sans", sans-serif`;
-      octx.fillStyle =
-        globalBg === '#111827' ? 'rgba(255,255,255,0.45)' : 'rgba(17,24,39,0.35)';
-      octx.textAlign = 'end';
-      octx.textBaseline = 'bottom';
-      octx.fillText(watermarkText.trim(), dims.width - fontPx, dims.height - fontPx * 0.75);
-      octx.restore();
-    }
-
-    return new Promise<Blob>((resolve, reject) => {
-      outCanvas.toBlob(
-        (b) => (b ? resolve(b) : reject(new Error('PNG encode failed'))),
-        'image/png'
-      );
-    });
   };
 
-  const processQueue = async () => {
+  const processSingleItemById = async (id: string) => {
+    const item = itemsRef.current.find((i) => i.id === id);
+    if (!item) return;
+
+    setItems((prev) =>
+      prev.map((x) =>
+        x.id === id ? { ...x, status: 'processing', progress: 10, errorMessage: undefined } : x
+      )
+    );
+
+    try {
+      const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const el = new Image();
+        el.onload = () => resolve(el);
+        el.onerror = () => reject(new Error(t.errDecodeFailed));
+        el.src = item.originalUrl;
+      });
+
+      const w = img.naturalWidth || img.width;
+      const h = img.naturalHeight || img.height;
+      const dimCheck = validateImageDimensions(w, h);
+      if (!dimCheck.valid) {
+        throw new Error(dimCheck.reason === 'too_large' ? t.errImageTooLarge : t.errDecodeFailed);
+      }
+
+      const cutout = await removeBackgroundWithEngine(img, selectedEngine, (p) => {
+        if (!isMountedRef.current) return;
+        setItems((prev) =>
+          prev.map((x) => (x.id === id ? { ...x, progress: Math.round(p.progress) } : x))
+        );
+      });
+
+      const outBlob = await renderBatchOutputBlob(img, cutout.maskData);
+      const resultCutoutUrl = URL.createObjectURL(outBlob);
+
+      if (!isMountedRef.current || !itemsRef.current.some((x) => x.id === id)) {
+        URL.revokeObjectURL(resultCutoutUrl);
+        return;
+      }
+
+      setItems((prev) =>
+        prev.map((x) => {
+          if (x.id !== id) return x;
+          if (x.resultCutoutUrl) URL.revokeObjectURL(x.resultCutoutUrl);
+          return {
+            ...x,
+            status: 'done',
+            progress: 100,
+            engineUsed: cutout.engineUsed,
+            usedFallback: cutout.usedFallback,
+            resultCutoutUrl,
+            originalWidth: cutout.width,
+            originalHeight: cutout.height,
+          };
+        })
+      );
+    } catch (err) {
+      if (!isMountedRef.current) return;
+      setItems((prev) =>
+        prev.map((x) =>
+          x.id === id
+            ? {
+                ...x,
+                status: 'error',
+                progress: 0,
+                errorMessage: err instanceof Error ? err.message : t.errDecodeFailed,
+              }
+            : x
+        )
+      );
+    }
+  };
+
+  const processQueue = async (onlyIds?: string[]) => {
     if (isProcessing) return;
-    const pendingIds = items
-      .filter((i) => i.status === 'queued' || i.status === 'error')
-      .map((i) => i.id);
+    const pendingIds = onlyIds
+      ? onlyIds
+      : itemsRef.current
+          .filter((i) => i.status === 'queued' || i.status === 'error')
+          .map((i) => i.id);
     if (pendingIds.length === 0) return;
 
     setIsProcessing(true);
+    setBatchError(null);
 
-    // Sequential loop protects browser RAM even for 50+ 4K images
-    for (const id of pendingIds) {
-      const item = items.find((i) => i.id === id);
-      if (!item) continue;
+    try {
+      // Sequential loop with configurable inter-image delay protects RAM and prevents UI freezing
+      for (let idx = 0; idx < pendingIds.length; idx++) {
+        if (!isMountedRef.current) break;
+        const id = pendingIds[idx];
+        await processSingleItemById(id);
 
-      setItems((prev) =>
-        prev.map((x) =>
-          x.id === id ? { ...x, status: 'processing', progress: 10, errorMessage: undefined } : x
-        )
-      );
-
-      try {
-        const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-          const el = new Image();
-          el.onload = () => resolve(el);
-          el.onerror = () => reject(new Error('Invalid image file'));
-          el.src = item.originalUrl;
-        });
-
-        const cutout = await removeBackgroundWithEngine(img, selectedEngine, (p) => {
-          setItems((prev) =>
-            prev.map((x) => (x.id === id ? { ...x, progress: Math.round(p.progress) } : x))
-          );
-        });
-
-        const outBlob = await renderBatchOutputBlob(img, cutout.maskData);
-        const resultCutoutUrl = URL.createObjectURL(outBlob);
-
-        setItems((prev) =>
-          prev.map((x) =>
-            x.id === id
-              ? {
-                  ...x,
-                  status: 'done',
-                  progress: 100,
-                  engineUsed: cutout.engineUsed,
-                  usedFallback: cutout.usedFallback,
-                  resultCutoutUrl,
-                  originalWidth: cutout.width,
-                  originalHeight: cutout.height,
-                }
-              : x
-          )
-        );
-      } catch (err) {
-        setItems((prev) =>
-          prev.map((x) =>
-            x.id === id
-              ? {
-                  ...x,
-                  status: 'error',
-                  progress: 0,
-                  errorMessage: err instanceof Error ? err.message : 'Processing failed',
-                }
-              : x
-          )
-        );
+        const activeDelay = clampBatchDelayMs(batchDelayRef.current);
+        if (shouldPauseBetweenBatchItems(idx, pendingIds.length, activeDelay)) {
+          await waitForBatchCooldown(activeDelay);
+        }
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setIsProcessing(false);
       }
     }
-
-    setIsProcessing(false);
   };
 
   const downloadSingle = async (item: BatchItem) => {
     if (!item.resultCutoutUrl) return;
-    const res = await fetch(item.resultCutoutUrl);
-    const blob = await res.blob();
-    const baseName = item.name.replace(/\.[^.]+$/, '');
-    const filename = `${baseName}-cutout.png`;
-    await saveBlobToDevice(blob, filename);
-    const dims = computeTargetDimensions(
-      item.originalWidth || 1200,
-      item.originalHeight || 900,
-      globalRatio
-    );
-    onExportComplete?.({
-      filename,
-      blob,
-      format: 'png',
-      width: dims.width,
-      height: dims.height,
-    });
+    try {
+      const res = await fetch(item.resultCutoutUrl);
+      const blob = await res.blob();
+      const baseName = item.name.replace(/\.[^.]+$/, '');
+      const filename = `${baseName}-cutout.png`;
+      await saveBlobToDevice(blob, filename);
+      const dims = computeTargetDimensions(
+        item.originalWidth || 1200,
+        item.originalHeight || 900,
+        globalRatio
+      );
+      onExportComplete?.({
+        filename,
+        blob,
+        format: 'png',
+        width: dims.width,
+        height: dims.height,
+      });
+    } catch {
+      setBatchError(t.errExportFailed);
+    }
   };
 
   const downloadAllZip = async () => {
-    const completed = items.filter((i) => i.status === 'done' && i.resultCutoutUrl);
+    const completed = itemsRef.current.filter((i) => i.status === 'done' && i.resultCutoutUrl);
     if (completed.length === 0 || isZipping) return;
     setIsZipping(true);
+    setBatchError(null);
     try {
       const zip = new JSZip();
+      const recentCandidates: Array<{
+        filename: string;
+        blob: Blob;
+        format: ExportFormat;
+        width: number;
+        height: number;
+      }> = [];
+
       for (let i = 0; i < completed.length; i++) {
         const item = completed[i];
         const res = await fetch(item.resultCutoutUrl!);
@@ -260,7 +378,7 @@ export function BulkBatchStudio({ t, selectedEngine, onExportComplete }: BulkBat
           item.originalHeight || 900,
           globalRatio
         );
-        onExportComplete?.({
+        recentCandidates.push({
           filename: entryName,
           blob,
           format: 'png',
@@ -268,18 +386,58 @@ export function BulkBatchStudio({ t, selectedEngine, onExportComplete }: BulkBat
           height: dims.height,
         });
       }
+
       const zipBlob = await zip.generateAsync({ type: 'blob' });
       await saveBlobToDevice(zipBlob, `noorcut-batch-${completed.length}.zip`);
+      recentCandidates.slice(-5).forEach((entry) => onExportComplete?.(entry));
+    } catch {
+      setBatchError(t.errZipFailed);
     } finally {
-      setIsZipping(false);
+      if (isMountedRef.current) {
+        setIsZipping(false);
+      }
     }
   };
 
   const doneCount = items.filter((i) => i.status === 'done').length;
   const queuedCount = items.filter((i) => i.status === 'queued' || i.status === 'error').length;
 
+  useEffect(() => {
+    onExportReadyChange?.(doneCount > 0 && !isZipping);
+  }, [doneCount, isZipping, onExportReadyChange]);
+
+  const lastExportTriggerRef = useRef(externalExportTrigger);
+  const downloadAllZipRef = useRef(downloadAllZip);
+  downloadAllZipRef.current = downloadAllZip;
+  useEffect(() => {
+    if (externalExportTrigger !== lastExportTriggerRef.current) {
+      lastExportTriggerRef.current = externalExportTrigger;
+      void downloadAllZipRef.current();
+    }
+  }, [externalExportTrigger]);
+
   return (
     <div className="space-y-5">
+      {batchError && (
+        <div
+          role="alert"
+          className="flex items-center justify-between gap-2.5 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-xs font-medium text-red-800"
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <AlertCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
+            <span>{batchError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setBatchError(null)}
+            aria-label={t.closeLabel}
+            className="rounded-lg p-1 text-red-700 hover:bg-red-100 cursor-pointer shrink-0"
+          >
+            <X className="h-3.5 w-3.5" aria-hidden="true" />
+          </button>
+        </div>
+      )}
+
       {/* Global Batch Settings & Dropzone */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
         <div
@@ -387,6 +545,54 @@ export function BulkBatchStudio({ t, selectedEngine, onExportComplete }: BulkBat
             </div>
           </div>
 
+          <div className="space-y-2 border-t border-[#E5E7EB] pt-3">
+            <div className="flex items-center justify-between gap-2">
+              <label
+                htmlFor="batch-delay-input"
+                className="text-xs font-semibold text-[#111827]"
+              >
+                {t.batchDelayLabel}
+              </label>
+              <div className="flex items-center gap-1.5" dir="ltr">
+                <input
+                  id="batch-delay-input"
+                  type="number"
+                  min={0}
+                  max={5000}
+                  step={50}
+                  value={batchDelayMs}
+                  onChange={(e) => {
+                    const parsed = Number(e.target.value);
+                    setBatchDelayMs(Number.isNaN(parsed) ? 0 : clampBatchDelayMs(parsed));
+                  }}
+                  className="w-20 rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] px-2 py-1 text-end font-mono text-xs font-semibold text-[#111827] tabular-nums focus:border-[#0D9488] focus:outline-none"
+                />
+                <span className="text-[11px] font-medium text-[#4B5563]">ms</span>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5" dir="ltr">
+              {BATCH_DELAY_PRESETS_MS.map((presetMs) => {
+                const active = batchDelayMs === presetMs;
+                return (
+                  <button
+                    key={presetMs}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => setBatchDelayMs(presetMs)}
+                    className={`rounded-lg border px-2.5 py-1 text-[11px] font-semibold tabular-nums transition-colors cursor-pointer ${
+                      active
+                        ? 'border-[#0D9488] bg-[#0D9488]/10 text-[#0D9488]'
+                        : 'border-[#E5E7EB] bg-[#F9FAFB] text-[#4B5563] hover:text-[#111827]'
+                    }`}
+                  >
+                    {presetMs} ms
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#E5E7EB] pt-3">
             <span className="text-xs font-medium text-[#4B5563] tabular-nums">
               {items.length} {t.batchCountLabel}
@@ -407,7 +613,7 @@ export function BulkBatchStudio({ t, selectedEngine, onExportComplete }: BulkBat
 
               <button
                 type="button"
-                onClick={processQueue}
+                onClick={() => void processQueue()}
                 disabled={isProcessing || queuedCount === 0}
                 className="inline-flex items-center gap-1.5 rounded-xl bg-[#1E293B] px-4 py-2 text-xs font-semibold text-white hover:bg-[#0F172A] disabled:opacity-40 transition-colors cursor-pointer"
               >
@@ -452,9 +658,10 @@ export function BulkBatchStudio({ t, selectedEngine, onExportComplete }: BulkBat
                 />
                 <button
                   type="button"
+                  disabled={item.status === 'processing'}
                   onClick={() => removeItem(item.id)}
-                  aria-label={`Remove ${item.name}`}
-                  className="absolute top-2 end-2 flex h-7 w-7 items-center justify-center rounded-lg border border-[#E5E7EB] bg-white/90 text-[#4B5563] hover:text-red-600 cursor-pointer"
+                  aria-label={`${t.deleteLayer} ${item.name}`}
+                  className="absolute top-2 end-2 flex h-7 w-7 items-center justify-center rounded-lg border border-[#E5E7EB] bg-white/90 text-[#4B5563] hover:text-red-600 disabled:opacity-35 cursor-pointer"
                 >
                   <X className="h-3.5 w-3.5" aria-hidden="true" />
                 </button>
@@ -463,7 +670,10 @@ export function BulkBatchStudio({ t, selectedEngine, onExportComplete }: BulkBat
               <div className="flex items-center justify-between gap-2 p-3">
                 <div className="min-w-0">
                   <p className="truncate text-xs font-semibold text-[#111827]">{item.name}</p>
-                  <p className="mt-0.5 text-[11px] font-medium text-[#4B5563] tabular-nums">
+                  <p
+                    title={item.errorMessage}
+                    className="mt-0.5 text-[11px] font-medium text-[#4B5563] tabular-nums truncate"
+                  >
                     {item.status === 'queued' && t.batchStatusQueued}
                     {item.status === 'processing' &&
                       `${t.batchStatusProcessing} · ${item.progress}%`}
@@ -474,7 +684,10 @@ export function BulkBatchStudio({ t, selectedEngine, onExportComplete }: BulkBat
                       </span>
                     )}
                     {item.status === 'error' && (
-                      <span className="text-red-600">{t.batchStatusError}</span>
+                      <span className="text-red-600">
+                        {t.batchStatusError}
+                        {item.errorMessage ? `: ${item.errorMessage}` : ''}
+                      </span>
                     )}
                   </p>
                 </div>
@@ -488,6 +701,18 @@ export function BulkBatchStudio({ t, selectedEngine, onExportComplete }: BulkBat
                   >
                     <Download className="h-3 w-3" aria-hidden="true" />
                     <span>{t.batchDownloadSingle}</span>
+                  </button>
+                )}
+
+                {item.status === 'error' && !isProcessing && (
+                  <button
+                    type="button"
+                    onClick={() => void processQueue([item.id])}
+                    aria-label={`${t.retryBtn} ${item.name}`}
+                    className="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] font-semibold text-red-700 hover:bg-red-100 cursor-pointer shrink-0"
+                  >
+                    <RefreshCw className="h-3 w-3" aria-hidden="true" />
+                    <span>{t.retryBtn}</span>
                   </button>
                 )}
               </div>
